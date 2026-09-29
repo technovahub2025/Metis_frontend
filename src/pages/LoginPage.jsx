@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiRequest } from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import {
   Mail,
@@ -42,21 +43,22 @@ const LoginPage = () => {
     sessionStorage.removeItem("metis_token");
     sessionStorage.removeItem("metis_user");
 
-    const response = await fetch(
-      "http://localhost:5000/api/auth/login",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-        }),
-      }
-    );
+try {
+  const data = await apiRequest("/api/auth/login", {
+    method: "POST",
+    body: {
+      email,
+      password,
+    },
+  });
 
-    const data = await response.json();
+  // Keep your existing token storage and role-based redirect here.
+  // Use this `data` variable for the login response.
+
+} catch (error) {
+  console.error("Login error:", error);
+  setError(error.message || "Login failed");
+}
 
     console.log(
       "LOGIN RESPONSE:",
