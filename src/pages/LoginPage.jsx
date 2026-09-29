@@ -23,7 +23,8 @@ const LoginPage = () => {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e) => {
+
+const handleSubmit = async (e) => {
   e.preventDefault();
 
   setError("");
@@ -31,137 +32,70 @@ const LoginPage = () => {
   setLoading(true);
 
   try {
-    /*
-     * Remove any old authentication data first.
-     *
-     * This is especially important because the previous
-     * implementation used localStorage.
-     */
+    // Clear old credentials so different roles can log in
+    // independently in separate browser tabs.
     localStorage.removeItem("metis_token");
     localStorage.removeItem("metis_user");
-
     sessionStorage.removeItem("metis_token");
     sessionStorage.removeItem("metis_user");
 
-try {
-  const data = await apiRequest("/api/auth/login", {
-    method: "POST",
-    body: {
-      email,
-      password,
-    },
-  });
+    // apiRequest already parses the JSON response.
+    const data = await apiRequest("/api/auth/login", {
+      method: "POST",
+      body: {
+        email: email.trim(),
+        password,
+      },
+    });
 
-  // Keep your existing token storage and role-based redirect here.
-  // Use this `data` variable for the login response.
+    console.log("LOGIN RESPONSE:", data);
 
-} catch (error) {
-  console.error("Login error:", error);
-  setError(error.message || "Login failed");
-}
-
-    console.log(
-      "LOGIN RESPONSE:",
-      data
-    );
-
-    if (
-      !response.ok ||
-      !data.success
-    ) {
+    if (!data?.success) {
       throw new Error(
-        data.message ||
-          "Invalid email or password"
+        data?.message || "Invalid email or password"
       );
     }
 
-    /*
-     * ========================================================
-     * IMPORTANT
-     * ========================================================
-     *
-     * Always use sessionStorage.
-     *
-     * sessionStorage is unique to each browser tab.
-     *
-     * Therefore:
-     *
-     * Tab 1 -> Admin
-     * Tab 2 -> PM
-     * Tab 3 -> TL
-     *
-     * can stay logged in independently.
-     */
-    sessionStorage.setItem(
-      "metis_token",
-      data.token
-    );
+    if (!data.token || !data.user) {
+      throw new Error(
+        "Login response is missing token or user."
+      );
+    }
 
+    const role = data.user.role?.toLowerCase();
+
+    // Store credentials only in this browser tab.
+    sessionStorage.setItem("metis_token", data.token);
     sessionStorage.setItem(
       "metis_user",
       JSON.stringify(data.user)
     );
 
-    /*
-     * Make sure old localStorage credentials
-     * can never remain active.
-     */
-    localStorage.removeItem(
-      "metis_token"
-    );
+    console.log("LOGIN ROLE:", role);
 
-    localStorage.removeItem(
-      "metis_user"
-    );
+    // Validate the role before redirecting.
+    const roleRoutes = {
+      admin: "/admin",
+      pm: "/pm",
+      tl: "/tl",
+    };
 
-    console.log(
-      "LOGIN ROLE:",
-      data.user?.role
-    );
+    const destination = roleRoutes[role];
+
+    if (!destination) {
+      sessionStorage.removeItem("metis_token");
+      sessionStorage.removeItem("metis_user");
+      throw new Error(
+        "Invalid user role received from server."
+      );
+    }
 
     setSuccess(true);
     setLoading(false);
 
-    /*
-     * ROLE BASED REDIRECT
-     */
-    if (
-      data.user?.role === "admin"
-    ) {
-      navigate("/admin", {
-        replace: true,
-      });
-      return;
-    }
-
-    if (
-      data.user?.role === "pm"
-    ) {
-      navigate("/pm", {
-        replace: true,
-      });
-      return;
-    }
-
-    if (
-      data.user?.role === "tl"
-    ) {
-      navigate("/tl", {
-        replace: true,
-      });
-      return;
-    }
-
-    setSuccess(false);
-
-    setError(
-      "Invalid user role received from server."
-    );
+    navigate(destination, { replace: true });
   } catch (error) {
-    console.error(
-      "Login error:",
-      error
-    );
+    console.error("Login error:", error);
 
     setError(
       error.message ||
