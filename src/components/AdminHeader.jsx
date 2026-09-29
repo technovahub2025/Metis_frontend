@@ -77,14 +77,7 @@ const AdminHeader = ({
           </button>
         )}
 
-        <button
-          type="button"
-          className="admin-icon-button notification"
-          title="Notifications"
-        >
-          <Bell size={16} />
-          <span />
-        </button>
+       
 
         {actions}
       </div>
