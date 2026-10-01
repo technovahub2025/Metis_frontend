@@ -549,7 +549,7 @@ const loadPMs = async () => {
 
         const payload = {
           subject: getValue(row, "Mail Subject"),
-          mailDate: getValue(row, "Mail Date") || undefined,
+          mailDate: (() => { const value = getValue(row, "Mail Date"); if (!value) return undefined; const parts = value.split("/"); if (parts.length === 3) { const [day, month, year] = parts; return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0"); } return value; })(),
           projectName,
           projectCode: getValue(row, "Project Code"),
           projectType: getValue(row, "Type of Project") || undefined,
