@@ -34,6 +34,7 @@ const AdminPage = () => {
 
   const [selectedMail, setSelectedMail] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
 
   const [toast, setToast] = useState(null);
@@ -548,20 +549,19 @@ const loadPMs = async () => {
         }
 
         const payload = {
-          subject: getValue(row, "Mail Subject"),
-          mailDate: (() => { const value = getValue(row, "Mail Date"); if (!value) return undefined; const parts = value.includes("/") ? value.split("/") : value.split("-"); if (parts.length === 3) { const [day, month, year] = parts; return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0"); } return value; })(),
-          projectName,
-          projectCode: getValue(row, "Project Code"),
-          projectType: getValue(row, "Type of Project") || undefined,
-          emailStage: getValue(row, "Email Stage") || undefined,
-          projectStage: getValue(row, "Project Stage") || "Acknowledged",
-          pm: pmId || undefined,
-          location: getValue(row, "Project Location"),
-          scope: getValue(row, "Project Scope"),
-          assignmentPriority: getValue(row, "Assignment Priority") || "Normal",
-
-          delegationNote: getValue(row, "Delegation Note"),
-        };
+        subject: newMail.subject.trim(),
+        mailDate: newMail.mailDate || undefined,
+        projectName: newMail.projectName.trim(),
+        projectCode: newMail.projectCode.trim(),
+        projectType: newMail.projectType || undefined,
+        emailStage: newMail.emailStage || undefined,
+        projectStage: newMail.projectStage || 'Acknowledged',
+        pm: newMail.pm || undefined,
+        location: newMail.location.trim(),
+        scope: newMail.scope.trim(),
+        assignmentPriority: newMail.assignmentPriority || 'Normal',
+        delegationNote: newMail.delegationNote.trim(),
+      };
 
         try {
           await apiRequest("/api/projects", {
@@ -722,8 +722,7 @@ const loadPMs = async () => {
         }
       );
 
-      const createdProject =
-        response?.data || response;
+      const createdProject = response?.data || response;
 
       if (createdProject) {
         setMailRecords(
@@ -764,6 +763,106 @@ const loadPMs = async () => {
    * ============================================================
    */
 
+  const handleEditProject = (project) => {
+    if (!project) return;
+
+    const rawDate = String(project.mailDate || '').trim();
+    let normalizedDate = rawDate;
+
+    if (rawDate.includes('/')) {
+      const parts = rawDate.split('/');
+      if (parts.length === 3) {
+        const [day, month, year] = parts;
+        normalizedDate = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+      }
+    } else if (rawDate.includes('-')) {
+      const parts = rawDate.split('-');
+      if (parts.length === 3 && parts[0].length === 2) {
+        const [day, month, year] = parts;
+        normalizedDate = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+      }
+    }
+
+    setEditingProject(project);
+    setNewMail({
+      subject: project.subject || '',
+      mailDate: normalizedDate,
+      projectName: project.projectName || '',
+      projectCode: project.projectCode || '',
+      pm: project.pm || project.pmId || '',
+      projectType: project.projectType || '',
+      emailStage: project.emailStage || '',
+      projectStage: project.projectStage || 'Acknowledged',
+      location: project.location || '',
+      scope: project.scope || '',
+      assignmentPriority: project.assignmentPriority || 'Normal',
+      delegationNote: project.delegationNote || '',
+    });
+
+    setShowAddModal(true);
+  };
+
+  const handleUpdateProject = async (event) => {
+    event.preventDefault();
+    if (!editingProject?.id) return;
+
+    if (!newMail.projectName.trim()) {
+      showToast('Project Name Required', 'Please enter the project name.', false);
+      return;
+    }
+
+    try {
+      setSavingProject(true);
+
+      const payload = {
+        subject: newMail.subject.trim(),
+        mailDate: newMail.mailDate || undefined,
+        projectName: newMail.projectName.trim(),
+        projectCode: newMail.projectCode.trim(),
+        projectType: newMail.projectType || undefined,
+        emailStage: newMail.emailStage || undefined,
+        projectStage: newMail.projectStage || 'Acknowledged',
+        pm: newMail.pm || undefined,
+        location: newMail.location.trim(),
+        scope: newMail.scope.trim(),
+        assignmentPriority: newMail.assignmentPriority || 'Normal',
+        delegationNote: newMail.delegationNote.trim(),
+      };
+
+      const response = await apiRequest(`/api/projects/${editingProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+
+      const updatedProject = response?.data || response;
+
+      if (updatedProject) {
+        setMailRecords((previous) =>
+          previous.map((project) =>
+            String(project.id) === String(updatedProject.id)
+              ? updatedProject
+              : project
+          )
+        );
+      }
+
+      setEditingProject(null);
+      resetProjectForm();
+      setShowAddModal(false);
+
+      showToast('Project Updated', 'The project has been updated successfully.');
+    } catch (error) {
+      console.error('Update project error:', error);
+      showToast(
+        'Project Update Failed',
+        error.message || 'Unable to update the project.',
+        false
+      );
+    } finally {
+      setSavingProject(false);
+    }
+  };
   const refreshProjects = async () => {
     await loadProjects();
 
@@ -1052,6 +1151,7 @@ const loadPMs = async () => {
               type="button"
               className="admin-add-mail-button"
               onClick={() => {
+                setEditingProject(null);
                 resetProjectForm();
                 setShowAddModal(true);
               }}
@@ -1616,15 +1716,27 @@ const loadPMs = async () => {
                           }
                         >
                           <button
+                            type="button"
                             className="review-button"
+                            title="Review"
+                            aria-label="Review project"
                             onClick={() =>
-                              setSelectedMail(
-                                project
-                              )
+                              setSelectedMail(project)
                             }
                           >
-                            <Eye size={14} />
-                            Review
+                            <Eye size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            className="review-button"
+                            title="Edit"
+                            aria-label="Edit project"
+                            onClick={() =>
+                              handleEditProject(project)
+                            }
+                          >
+                            <Pencil size={15} />
                           </button>
                         </td>
                       </tr>
@@ -1874,11 +1986,11 @@ const loadPMs = async () => {
             <div className="admin-modal-header">
               <div>
                 <h2>
-                  Add Project
+                  {editingProject ? "Edit Project" : "Add Project"}
                 </h2>
 
                 <p>
-                  Manually enter project information from the received email.
+                  {editingProject ? "Update the project information." : "Manually enter project information from the received email."}
                 </p>
               </div>
 
@@ -1893,7 +2005,7 @@ const loadPMs = async () => {
 
             <form
               className="admin-add-form"
-              onSubmit={handleAddMail}
+              onSubmit={editingProject ? handleUpdateProject : handleAddMail}
             >
               {/* Subject */}
 
@@ -2246,9 +2358,11 @@ const loadPMs = async () => {
                 <button
                   type="button"
                   className="admin-cancel-button"
-                  onClick={() =>
-                    setShowAddModal(false)
-                  }
+                  onClick={() => {
+                    setEditingProject(null);
+                    resetProjectForm();
+                    setShowAddModal(false);
+                  }}
                   disabled={
                     savingProject
                   }
@@ -2266,8 +2380,8 @@ const loadPMs = async () => {
                   <Plus size={15} />
 
                   {savingProject
-                    ? "Creating..."
-                    : "Create Project"}
+                    ? (editingProject ? "Updating..." : "Creating...")
+                    : (editingProject ? "Update Project" : "Create Project")}
                 </button>
               </div>
             </form>
