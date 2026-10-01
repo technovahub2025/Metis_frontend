@@ -23,6 +23,7 @@ import {
   apiRequest,
   getCurrentUser,
 } from "../../lib/api";
+import { PROJECT_STAGES } from "../../lib/helpers";
 
 import { PMHamburger } from "../../components/pm";
 
@@ -1289,8 +1290,8 @@ const PMPage = () => {
                 Outsource
               </option>
 
-              <option value="TMC">
-                TMC
+              <option value="PMC">
+                PMC
               </option>
             </select>
 
@@ -1309,25 +1310,14 @@ const PMPage = () => {
                 Project Stage: All
               </option>
 
-              <option value="Planning">
-                Planning
-              </option>
-
-              <option value="Design">
-                Design
-              </option>
-
-              <option value="Construction">
-                Construction
-              </option>
-
-              <option value="Execution">
-                Execution
-              </option>
-
-              <option value="Closure">
-                Closure
-              </option>
+              {PROJECT_STAGES.map((stage) => (
+                <option
+                  key={stage}
+                  value={stage}
+                >
+                  {stage}
+                </option>
+              ))}
             </select>
 
             <select

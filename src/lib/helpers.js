@@ -76,3 +76,23 @@ export const initials = (name, fallback = "??") =>
         .slice(0, 2)
         .toUpperCase() || fallback
     : fallback;
+
+export const EMAIL_STAGES = [
+  "Sent to Client",
+  "Acknowledgement",
+  "In Discussion",
+  "Sent by IT",
+  "Hold",
+  "Waiting for IC/IT",
+];
+
+export const PROJECT_STAGES = [
+  "Acknowledged",
+  "Model/Quote sent",
+  "Implementation",
+  "Dropped",
+  "Hold",
+  "In Discussion - Inhouse",
+  "In Discussion - Team",
+  "Completed",
+];

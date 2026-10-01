@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
 import { apiRequest } from "../../lib/api";
-import { calculateAge } from "../../lib/helpers";
+import { calculateAge, EMAIL_STAGES, PROJECT_STAGES } from "../../lib/helpers";
 
 const AdminPage = () => {
   const [search, setSearch] = useState("");
@@ -243,7 +243,9 @@ const loadPMs = async () => {
             ).toLowerCase() !==
               "hold" &&
             project.projectStage !==
-              "Closure"
+              "Closure" &&
+            project.projectStage !==
+              "Completed"
         ).length;
       case "on-hold":
         return mailRecords.filter(
@@ -255,7 +257,8 @@ const loadPMs = async () => {
       case "completed":
         return mailRecords.filter(
           (project) =>
-            project.projectStage === "Closure"
+            project.projectStage === "Closure" ||
+            project.projectStage === "Completed"
         ).length;
       default:
         return 0;
@@ -307,7 +310,9 @@ const loadPMs = async () => {
               ).toLowerCase() !==
                 "hold" &&
               project.projectStage !==
-                "Closure"
+                "Closure" &&
+              project.projectStage !==
+                "Completed"
             );
           case "on-hold":
             return (
@@ -318,7 +323,8 @@ const loadPMs = async () => {
             );
           case "completed":
             return (
-              project.projectStage === "Closure"
+              project.projectStage === "Closure" ||
+              project.projectStage === "Completed"
             );
           default:
             return true;
@@ -536,7 +542,7 @@ const loadPMs = async () => {
 
         projectStage:
           newMail.projectStage ||
-          "Planning",
+          "Acknowledged",
 
         pm:
           newMail.pm || undefined,
@@ -1109,25 +1115,14 @@ const loadPMs = async () => {
                   Project Stage: All
                 </option>
 
-                <option value="Planning">
-                  Planning
-                </option>
-
-                <option value="Design">
-                  Design
-                </option>
-
-                <option value="Construction">
-                  Construction
-                </option>
-
-                <option value="Execution">
-                  Execution
-                </option>
-
-                <option value="Closure">
-                  Closure
-                </option>
+                {PROJECT_STAGES.map((stage) => (
+                  <option
+                    key={stage}
+                    value={stage}
+                  >
+                    {stage}
+                  </option>
+                ))}
               </select>
 
               <select
@@ -1168,21 +1163,16 @@ const loadPMs = async () => {
                   Email Stage: All
                 </option>
 
-                <option value="Sent">
-                  Sent
-                </option>
-
-                <option value="Hold">
-                  Hold
-                </option>
-
-                <option value="Draft">
-                  Draft
-                </option>
-
-                <option value="Review">
-                  Review
-                </option>
+                {EMAIL_STAGES.map(
+                  (stage) => (
+                    <option
+                      key={stage}
+                      value={stage}
+                    >
+                      {stage}
+                    </option>
+                  )
+                )}
               </select>
 
               <select
@@ -1897,8 +1887,8 @@ const loadPMs = async () => {
   Outsource
 </option>
 
-<option value="TMC">
-  TMC
+<option value="PMC">
+  PMC
 </option>
                   </select>
                 </div>
@@ -1924,21 +1914,16 @@ const loadPMs = async () => {
                       Select stage
                     </option>
 
-                    <option value="Sent">
-                      Sent
-                    </option>
-
-                    <option value="Hold">
-                      Hold
-                    </option>
-
-                    <option value="Draft">
-                      Draft
-                    </option>
-
-                    <option value="Review">
-                      Review
-                    </option>
+                    {EMAIL_STAGES.map(
+                      (stage) => (
+                        <option
+                          key={stage}
+                          value={stage}
+                        >
+                          {stage}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
               </div>
@@ -1963,29 +1948,18 @@ const loadPMs = async () => {
                       })
                     }
                   >
-                    <option value="">
-                      Select stage
+                     <option value="">
+                      Project Stage: All
                     </option>
 
-                    <option value="Planning">
-                      Planning
-                    </option>
-
-                    <option value="Design">
-                      Design
-                    </option>
-
-                    <option value="Construction">
-                      Construction
-                    </option>
-
-                    <option value="Execution">
-                      Execution
-                    </option>
-
-                    <option value="Closure">
-                      Closure
-                    </option>
+                    {PROJECT_STAGES.map((stage) => (
+                      <option
+                        key={stage}
+                        value={stage}
+                      >
+                        {stage}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

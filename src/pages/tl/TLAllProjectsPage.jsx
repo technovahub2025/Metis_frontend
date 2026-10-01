@@ -19,6 +19,7 @@ import { useApiList } from "../../lib/useApiList";
 import {
   calculateAge,
   formatDate,
+  PROJECT_STAGES,
 } from "../../lib/helpers";
 import { TLHamburger } from "../../components/tl";
 
@@ -455,8 +456,8 @@ const TLAllProjectsPage = () => {
                       Outsource
                     </option>
 
-                    <option value="TMC">
-                      TMC
+                    <option value="PMC">
+                      PMC
                     </option>
                   </select>
                 </div>
@@ -496,25 +497,14 @@ const TLAllProjectsPage = () => {
                   Stage: All
                 </option>
 
-                <option value="Planning">
-                  Planning
-                </option>
-
-                <option value="Design">
-                  Design
-                </option>
-
-                <option value="Construction">
-                  Construction
-                </option>
-
-                <option value="Execution">
-                  Execution
-                </option>
-
-                <option value="Closure">
-                  Closure
-                </option>
+                {PROJECT_STAGES.map((stage) => (
+                  <option
+                    key={stage}
+                    value={stage}
+                  >
+                    {stage}
+                  </option>
+                ))}
               </select>
 
               <select

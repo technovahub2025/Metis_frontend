@@ -20,6 +20,7 @@ import {
   formatDate,
   formatDateTime,
   statusBadgeClass,
+  PROJECT_STAGES,
 } from "../../lib/helpers";
 
 const PROJECT_TYPES = [
@@ -27,14 +28,6 @@ const PROJECT_TYPES = [
   "Commercial",
   "Industrial",
   "Infrastructure",
-];
-
-const PROJECT_STAGES = [
-  "Planning",
-  "Design",
-  "Construction",
-  "Execution",
-  "Closure",
 ];
 
 const STATUSES = [

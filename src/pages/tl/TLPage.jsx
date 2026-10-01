@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { TLHamburger } from "../../components/tl";
+import { PROJECT_STAGES } from "../../lib/helpers";
 import {
   Bell,
   Briefcase,
@@ -253,8 +254,8 @@ const TLPage = () => {
 
       case "Outsource":
         return "tl-type outsource";
-      case "TMC":
-        return "tl-type tmc";
+      case "PMC":
+        return "tl-type pmc";
 
 
       default:
@@ -265,15 +266,19 @@ const TLPage = () => {
   const getStageClass = (stage) => {
     switch (stage) {
       case "Planning":
+      case "Acknowledged":
         return "tl-stage planning";
 
       case "Design":
+      case "Model/Quote sent":
         return "tl-stage design";
 
       case "Construction":
+      case "Implementation":
         return "tl-stage construction";
 
       case "Closure":
+      case "Completed":
         return "tl-stage closure";
 
       default:
@@ -661,8 +666,8 @@ const TLPage = () => {
                   Outsource
                 </option>
 
-                <option value="TMC">
-                  TMC
+                <option value="PMC">
+                  PMC
                 </option>
               </select>
 
@@ -686,21 +691,14 @@ const TLPage = () => {
                   Project Stage: All
                 </option>
 
-                <option value="Planning">
-                  Planning
-                </option>
-
-                <option value="Design">
-                  Design
-                </option>
-
-                <option value="Construction">
-                  Construction
-                </option>
-
-                <option value="Closure">
-                  Closure
-                </option>
+                {PROJECT_STAGES.map((stage) => (
+                  <option
+                    key={stage}
+                    value={stage}
+                  >
+                    {stage}
+                  </option>
+                ))}
               </select>
 
               <select
