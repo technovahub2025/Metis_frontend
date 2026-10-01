@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Download,
   Eye,
+  Filter,
   HardHat,
   Mail,
   Plus,
@@ -15,14 +16,21 @@ import {
   Upload,
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
+import { downloadProjectSampleCSV, parseProjectCSV, PROJECT_CSV_HEADERS } from "../../lib/projectCsv";
 import { apiRequest } from "../../lib/api";
+import { calculateAge, EMAIL_STAGES, PROJECT_STAGES } from "../../lib/helpers";
 
 const AdminPage = () => {
   const [search, setSearch] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [filterPM, setFilterPM] = useState("");
+  const [filterTL, setFilterTL] = useState("");
+  const [filterType, setFilterType] = useState("");
   const [filterStage, setFilterStage] = useState("");
   const [filterEmailStage, setFilterEmailStage] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [sortOption, setSortOption] = useState("newest");
+  const [statusTab, setStatusTab] = useState("all");
 
   const [selectedMail, setSelectedMail] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -52,10 +60,11 @@ const AdminPage = () => {
   const [savingProject, setSavingProject] =
     useState(false);
 
-  
   const [importingCSV, setImportingCSV] = useState(false);
+
   const csvInputRef = useRef(null);
-/*
+
+  /*
    * New project form
    */
   const [newMail, setNewMail] = useState({
@@ -117,42 +126,150 @@ const AdminPage = () => {
    * ============================================================
    */
 
-  const loadPMs = async () => {
-    try {
-      setLoadingPMs(true);
+const loadPMs = async () => {
+  try {
+    setLoadingPMs(true);
 
-      const response = await apiRequest(
-        "/api/users?role=pm"
-      );
+    const response = await apiRequest(
+      "/api/users?role=pm&active=true"
+    );
 
-      const users = Array.isArray(response)
-        ? response
-        : Array.isArray(response?.data)
-          ? response.data
+    const users = Array.isArray(response?.users)
+      ? response.users
+      : Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+          ? response
           : [];
 
-      setPmUsers(users);
-    } catch (error) {
-      console.error(
-        "Failed to load PMs:",
-        error
-      );
+    // IMPORTANT:
+    // Only PM users are allowed in the Project Manager dropdown.
+    const pmOnly = users.filter(
+      (user) =>
+        String(user.role || "").toLowerCase() === "pm" &&
+        user.active !== false
+    );
 
-      showToast(
-        "Unable to Load PMs",
-        error.message ||
-          "Failed to load project managers.",
-        false
-      );
-    } finally {
-      setLoadingPMs(false);
-    }
-  };
+    setPmUsers(pmOnly);
+  } catch (error) {
+    console.error(
+      "Failed to load PMs:",
+      error
+    );
+
+    showToast(
+      "Unable to Load PMs",
+      error.message ||
+        "Failed to load project managers.",
+      false
+    );
+  } finally {
+    setLoadingPMs(false);
+  }
+};
 
   useEffect(() => {
     loadProjects();
     loadPMs();
   }, []);
+
+  const tlOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          mailRecords
+            .map((project) => project.tlName)
+            .filter(Boolean)
+        )
+      ),
+    [mailRecords]
+  );
+
+  const typeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          mailRecords
+            .map((project) => project.projectType)
+            .filter(Boolean)
+        )
+      ),
+    [mailRecords]
+  );
+
+  const statusOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          mailRecords
+            .map((project) => project.status)
+            .filter(Boolean)
+        )
+      ),
+    [mailRecords]
+  );
+
+  const statusTabOptions = [
+    {
+      key: "all",
+      label: "All Projects",
+    },
+    {
+      key: "action-needed",
+      label: "Action Needed",
+    },
+    {
+      key: "in-progress",
+      label: "In Progress",
+    },
+    {
+      key: "on-hold",
+      label: "On Hold",
+    },
+    {
+      key: "completed",
+      label: "Completed",
+    },
+  ];
+
+  const getStatusTabCount = (key) => {
+    switch (key) {
+      case "all":
+        return mailRecords.length;
+      case "action-needed":
+        return mailRecords.filter(
+          (project) => !project.pm
+        ).length;
+      case "in-progress":
+        return mailRecords.filter(
+          (project) =>
+            project.pm &&
+            String(
+              project.emailStage || ""
+            ).toLowerCase() !==
+              "hold" &&
+            project.projectStage !==
+              "Closure" &&
+            project.projectStage !==
+              "Completed"
+        ).length;
+      case "on-hold":
+        return mailRecords.filter(
+          (project) =>
+            String(
+              project.emailStage || ""
+            ).toLowerCase() === "hold"
+        ).length;
+      case "completed":
+        return mailRecords.filter(
+          (project) =>
+            project.projectStage === "Closure" ||
+            project.projectStage === "Completed"
+        ).length;
+      default:
+        return 0;
+    }
+  };
 
   /*
    * ============================================================
@@ -166,7 +283,7 @@ const AdminPage = () => {
         .trim()
         .toLowerCase();
 
-    return mailRecords.filter((project) => {
+    const result = mailRecords.filter((project) => {
       const matchesSearch =
         !query ||
         [
@@ -185,10 +302,53 @@ const AdminPage = () => {
           .toLowerCase()
           .includes(query);
 
+      const matchesStatusTab = (() => {
+        switch (statusTab) {
+          case "all":
+            return true;
+          case "action-needed":
+            return !project.pm;
+          case "in-progress":
+            return (
+              project.pm &&
+              String(
+                project.emailStage || ""
+              ).toLowerCase() !==
+                "hold" &&
+              project.projectStage !==
+                "Closure" &&
+              project.projectStage !==
+                "Completed"
+            );
+          case "on-hold":
+            return (
+              String(
+                project.emailStage || ""
+              ).toLowerCase() ===
+              "hold"
+            );
+          case "completed":
+            return (
+              project.projectStage === "Closure" ||
+              project.projectStage === "Completed"
+            );
+          default:
+            return true;
+        }
+      })();
+
       const matchesPM =
         !filterPM ||
         String(project.pm || "") ===
           String(filterPM);
+
+      const matchesTL =
+        !filterTL ||
+        project.tlName === filterTL;
+
+      const matchesType =
+        !filterType ||
+        project.projectType === filterType;
 
       const matchesStage =
         !filterStage ||
@@ -200,20 +360,62 @@ const AdminPage = () => {
         project.emailStage ===
           filterEmailStage;
 
+      const matchesStatus =
+        !filterStatus ||
+        project.status === filterStatus;
+
       return (
         matchesSearch &&
+        matchesStatusTab &&
         matchesPM &&
+        matchesTL &&
+        matchesType &&
         matchesStage &&
-        matchesEmailStage
+        matchesEmailStage &&
+        matchesStatus
+      );
+    });
+
+    return [...result].sort((a, b) => {
+      if (sortOption === "oldest") {
+        return (
+          new Date(a.mailDate || 0) -
+          new Date(b.mailDate || 0)
+        );
+      }
+
+      if (sortOption === "age-desc") {
+        return (
+          (calculateAge(b.receivedDate) || 0) -
+          (calculateAge(a.receivedDate) || 0)
+        );
+      }
+
+      if (sortOption === "name-az") {
+        return String(
+          a.projectName || ""
+        ).localeCompare(
+          String(b.projectName || "")
+        );
+      }
+
+      return (
+        new Date(b.mailDate || 0) -
+        new Date(a.mailDate || 0)
       );
     });
   }, [
     mailRecords,
     search,
     tableSearch,
+    statusTab,
     filterPM,
+    filterTL,
+    filterType,
     filterStage,
     filterEmailStage,
+    filterStatus,
+    sortOption,
   ]);
 
   /*
@@ -267,12 +469,160 @@ const AdminPage = () => {
    * ============================================================
    */
 
+  const handleCSVImport = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseProjectCSV(text);
+
+      if (rows.length < 2) {
+        showToast(
+          "Import Failed",
+          "The CSV does not contain any project rows.",
+          false
+        );
+        return;
+      }
+
+      const headers = rows[0].map((header) => header.trim());
+
+      const headersMatch =
+        headers.length === PROJECT_CSV_HEADERS.length &&
+        PROJECT_CSV_HEADERS.every(
+          (header, index) => headers[index] === header
+        );
+
+      if (!headersMatch) {
+        showToast(
+          "Invalid CSV",
+          "Please use the Download Sample CSV format.",
+          false
+        );
+        return;
+      }
+
+      const importedRows = rows.slice(1);
+      const errors = [];
+      let successCount = 0;
+
+      const getValue = (row, header) => {
+        const index = PROJECT_CSV_HEADERS.indexOf(header);
+        return String(row[index] ?? "").trim();
+      };
+
+      for (let index = 0; index < importedRows.length; index += 1) {
+        const row = importedRows[index];
+        const rowNumber = index + 2;
+
+        const projectName = getValue(row, "Project Name");
+
+        if (!projectName) {
+          errors.push(`Row ${rowNumber}: Project Name is required.`);
+          continue;
+        }
+
+        const pmName = getValue(row, "Project Manager");
+
+        let pmId;
+
+        if (pmName && pmName.toLowerCase() !== "unassigned") {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || "").trim().toLowerCase() ===
+              pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowNumber}: Project Manager "${pmName}" not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue(row, "Mail Subject"),
+          mailDate: getValue(row, "Mail Date") || undefined,
+          projectName,
+          projectCode: getValue(row, "Project Code"),
+          projectType: getValue(row, "Type of Project") || undefined,
+          emailStage: getValue(row, "Email Stage") || undefined,
+          projectStage: getValue(row, "Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue(row, "Project Location"),
+          scope: getValue(row, "Project Scope"),
+          assignmentPriority: getValue(row, "Assignment Priority") || "Normal",
+
+          delegationNote: getValue(row, "Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          successCount += 1;
+        } catch (error) {
+          console.error(
+            `CSV import failed for row ${rowNumber}:`,
+            error
+          );
+
+          errors.push(
+            `Row ${rowNumber}: ${error?.message || "Failed to create project."}`
+          );
+        }
+      }
+
+      await refreshProjects();
+
+      if (errors.length === 0) {
+        showToast(
+          "Import Successful",
+          `${successCount} project(s) imported successfully.`
+        );
+      } else {
+        showToast(
+          "Import Completed",
+          `${successCount} imported, ${errors.length} failed. ${errors[0]}`,
+          false
+        );
+      }
+    } catch (error) {
+      console.error("CSV import failed:", error);
+
+      showToast(
+        "Import Failed",
+        error?.message || "Unable to import the CSV file.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+      event.target.value = "";
+    }
+  };
   const resetFilters = () => {
     setSearch("");
     setTableSearch("");
     setFilterPM("");
+    setFilterTL("");
+    setFilterType("");
     setFilterStage("");
     setFilterEmailStage("");
+    setFilterStatus("");
+    setSortOption("newest");
+    setStatusTab("all");
   };
 
   /*
@@ -341,7 +691,7 @@ const AdminPage = () => {
 
         projectStage:
           newMail.projectStage ||
-          "Planning",
+          "Acknowledged",
 
         pm:
           newMail.pm || undefined,
@@ -657,280 +1007,7 @@ const AdminPage = () => {
       "Export Complete",
       "Project records exported successfully."
     );
-  };
-const downloadSampleCSV = () => {
-    const headers = [
-      "Mail Subject",
-      "Mail Date",
-      "Project Name",
-      "Project Code",
-      "Project Manager",
-      "Type of Project",
-      "Email Stage",
-      "Project Stage",
-      "Assignment Priority",
-      "Project Location",
-      "Project Scope",
-      "Delegation Note",
-    ];
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    const sampleRow = [
-      "Sample Project Email",
-      today,
-      "Test Project",
-      "PRJ-001",
-      "Unassigned",
-      "RCC",
-      "Sent to Client",
-      "Acknowledged",
-      "Normal",
-      "Puducherry",
-      "Sample project scope",
-      "Sample delegation note",
-    ];
-
-    const csv = [headers, sampleRow]
-      .map((row) =>
-        row
-          .map((value) =>
-            `"${String(value ?? "").replace(/"/g, '""')}"`
-          )
-          .join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = "metis-project-sample.csv";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-
-    URL.revokeObjectURL(url);
   };
-
-  const parseCSV = (text) => {
-    const rows = [];
-    let row = [];
-    let value = "";
-    let insideQuotes = false;
-
-    for (let i = 0; i < text.length; i += 1) {
-      const char = text[i];
-      const next = text[i + 1];
-
-      if (char === '"' && insideQuotes && next === '"') {
-        value += '"';
-        i += 1;
-      } else if (char === '"') {
-        insideQuotes = !insideQuotes;
-      } else if (char === "," && !insideQuotes) {
-        row.push(value);
-        value = "";
-      } else if (
-        (char === "\n" || char === "\r") &&
-        !insideQuotes
-      ) {
-        if (char === "\r" && next === "\n") {
-          i += 1;
-        }
-
-        row.push(value);
-        value = "";
-
-        if (row.some((cell) => cell.trim() !== "")) {
-          rows.push(row);
-        }
-
-        row = [];
-      } else {
-        value += char;
-      }
-    }
-
-    if (value !== "" || row.length) {
-      row.push(value);
-
-      if (row.some((cell) => cell.trim() !== "")) {
-        rows.push(row);
-      }
-    }
-
-    return rows;
-  };
-
-  const handleImportCSV = async (event) => {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    try {
-      setImportingCSV(true);
-
-      const text = await file.text();
-      const rows = parseCSV(text);
-
-      if (rows.length < 2) {
-        throw new Error(
-          "The CSV must contain a header row and at least one project row."
-        );
-      }
-
-      const requiredHeaders = [
-        "Mail Subject",
-        "Mail Date",
-        "Project Name",
-        "Project Code",
-        "Project Manager",
-        "Type of Project",
-        "Email Stage",
-        "Project Stage",
-        "Assignment Priority",
-        "Project Location",
-        "Project Scope",
-        "Delegation Note",
-      ];
-
-      const headers = rows[0].map((header) =>
-        String(header).trim()
-      );
-
-      const missingHeaders = requiredHeaders.filter(
-        (header) => !headers.includes(header)
-      );
-
-      if (missingHeaders.length) {
-        throw new Error(
-          `Missing CSV columns: ${missingHeaders.join(", ")}`
-        );
-      }
-
-      const columnIndex = Object.fromEntries(
-        headers.map((header, index) => [header, index])
-      );
-
-      let created = 0;
-      const errors = [];
-
-      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
-        const row = rows[rowIndex];
-
-        const getValue = (header) =>
-          String(row[columnIndex[header]] ?? "").trim();
-
-        const projectName = getValue("Project Name");
-
-        if (!projectName) {
-          errors.push(
-            `Row ${rowIndex + 1}: Project Name is required.`
-          );
-          continue;
-        }
-
-        const pmName = getValue("Project Manager");
-        let pmId;
-
-        if (
-          pmName &&
-          pmName.toLowerCase() !== "unassigned"
-        ) {
-          const matchedPM = pmUsers.find(
-            (pm) =>
-              String(pm.name || pm.fullName || "")
-                .trim()
-                .toLowerCase() === pmName.toLowerCase()
-          );
-
-          if (!matchedPM) {
-            errors.push(
-              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
-            );
-            continue;
-          }
-
-          pmId = matchedPM.id || matchedPM._id;
-        }
-
-        const payload = {
-          subject: getValue("Mail Subject"),
-          mailDate: getValue("Mail Date") || undefined,
-          projectName,
-          projectCode: getValue("Project Code"),
-          projectType:
-            getValue("Type of Project") || undefined,
-          emailStage:
-            getValue("Email Stage") || undefined,
-          projectStage:
-            getValue("Project Stage") || "Acknowledged",
-          pm: pmId || undefined,
-          location: getValue("Project Location"),
-          scope: getValue("Project Scope"),
-          assignmentPriority:
-            getValue("Assignment Priority") || "Normal",
-          delegationNote: getValue("Delegation Note"),
-        };
-
-        try {
-          await apiRequest("/api/projects", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: payload,
-          });
-
-          created += 1;
-        } catch (error) {
-          errors.push(
-            `Row ${rowIndex + 1}: ${
-              error.message || "Unable to create project."
-            }`
-          );
-        }
-      }
-
-      await loadProjects();
-
-      if (errors.length) {
-        showToast(
-          "CSV Import Completed with Errors",
-          `${created} project(s) created. ${errors.length} row(s) failed.`,
-          false
-        );
-
-        console.error("CSV import errors:", errors);
-      } else {
-        showToast(
-          "CSV Import Complete",
-          `${created} project(s) imported successfully.`
-        );
-      }
-    } catch (error) {
-      console.error("CSV import error:", error);
-
-      showToast(
-        "CSV Import Failed",
-        error.message || "Unable to import CSV.",
-        false
-      );
-    } finally {
-      setImportingCSV(false);
-
-      if (csvInputRef.current) {
-        csvInputRef.current.value = "";
-      }
-    }
-  };
-
-
 
   return (
     <>
@@ -945,31 +1022,30 @@ const downloadSampleCSV = () => {
         onRefresh={refreshProjects}
         actions={
           <>
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              style={{ display: "none" }}
-              onChange={handleImportCSV}
-            />
-
             <button
               type="button"
               className="admin-export-button"
-              onClick={downloadSampleCSV}
+              onClick={downloadProjectSampleCSV}
             >
               <Download size={14} />
               Download Sample
             </button>
 
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCSVImport}
+              style={{ display: "none" }}
+            />
+
             <button
               type="button"
               className="admin-export-button"
               onClick={() => csvInputRef.current?.click()}
-              disabled={importingCSV}
             >
               <Upload size={14} />
-              {importingCSV ? "Importing..." : "Import CSV"}
+              Import CSV
             </button>
 
             <button
@@ -1055,11 +1131,57 @@ const downloadSampleCSV = () => {
               </div>
             </div>
 
-            {/* Filters */}
+            {/* Status Tabs */}
 
-            <div className="admin-filter-toolbar">
-              <div className="admin-table-search">
-                <Search size={14} />
+            <div className="admin-control-top">
+              <div className="admin-status-tabs">
+                {statusTabOptions.map(
+                  (tab) => {
+                    const count =
+                      getStatusTabCount(
+                        tab.key
+                      );
+
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        className={`admin-status-tab ${
+                          statusTab === tab.key
+                            ? "active"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          setStatusTab(
+                            tab.key
+                          )
+                        }
+                      >
+                        <span className="count">
+                          {count}
+                        </span>
+                        {tab.label}
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+
+              <button
+                type="button"
+                className="admin-clear-btn"
+                onClick={resetFilters}
+              >
+                <Filter size={14} />
+                Clear Filters
+              </button>
+            </div>
+
+            {/* Filter Row */}
+
+            <div className="admin-filter-bar">
+              <div className="admin-filter-search">
+                <Search size={16} />
 
                 <input
                   value={tableSearch}
@@ -1068,11 +1190,12 @@ const downloadSampleCSV = () => {
                       event.target.value
                     )
                   }
-                  placeholder="Filter current view..."
+                  placeholder="Search project, code, PM..."
                 />
               </div>
 
               <select
+                className="admin-filter-select"
                 value={filterPM}
                 onChange={(event) =>
                   setFilterPM(
@@ -1107,6 +1230,57 @@ const downloadSampleCSV = () => {
               </select>
 
               <select
+                className="admin-filter-select"
+                value={filterTL}
+                onChange={(event) =>
+                  setFilterTL(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="">
+                  Team Lead: All
+                </option>
+
+                {tlOptions.map(
+                  (name) => (
+                    <option
+                      key={name}
+                      value={name}
+                    >
+                      {name}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <select
+                className="admin-filter-select"
+                value={filterType}
+                onChange={(event) =>
+                  setFilterType(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="">
+                  Project Type: All
+                </option>
+
+                {typeOptions.map(
+                  (type) => (
+                    <option
+                      key={type}
+                      value={type}
+                    >
+                      {type}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <select
+                className="admin-filter-select"
                 value={filterStage}
                 onChange={(event) =>
                   setFilterStage(
@@ -1118,28 +1292,43 @@ const downloadSampleCSV = () => {
                   Project Stage: All
                 </option>
 
-                <option value="Planning">
-                  Planning
-                </option>
-
-                <option value="Design">
-                  Design
-                </option>
-
-                <option value="Construction">
-                  Construction
-                </option>
-
-                <option value="Execution">
-                  Execution
-                </option>
-
-                <option value="Closure">
-                  Closure
-                </option>
+                {PROJECT_STAGES.map((stage) => (
+                  <option
+                    key={stage}
+                    value={stage}
+                  >
+                    {stage}
+                  </option>
+                ))}
               </select>
 
               <select
+                className="admin-filter-select"
+                value={filterStatus}
+                onChange={(event) =>
+                  setFilterStatus(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="">
+                  Status: All
+                </option>
+
+                {statusOptions.map(
+                  (status) => (
+                    <option
+                      key={status}
+                      value={status}
+                    >
+                      {status}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <select
+                className="admin-filter-select"
                 value={filterEmailStage}
                 onChange={(event) =>
                   setFilterEmailStage(
@@ -1151,20 +1340,41 @@ const downloadSampleCSV = () => {
                   Email Stage: All
                 </option>
 
-                <option value="Sent">
-                  Sent
+                {EMAIL_STAGES.map(
+                  (stage) => (
+                    <option
+                      key={stage}
+                      value={stage}
+                    >
+                      {stage}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <select
+                className="admin-filter-select"
+                value={sortOption}
+                onChange={(event) =>
+                  setSortOption(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="newest">
+                  Newest First
                 </option>
 
-                <option value="Hold">
-                  Hold
+                <option value="oldest">
+                  Oldest First
                 </option>
 
-                <option value="Draft">
-                  Draft
+                <option value="age-desc">
+                  Age: Highest First
                 </option>
 
-                <option value="Review">
-                  Review
+                <option value="name-az">
+                  Project Name (A-Z)
                 </option>
               </select>
 
@@ -1174,13 +1384,6 @@ const downloadSampleCSV = () => {
               >
                 <Download size={14} />
                 Export
-              </button>
-
-              <button
-                className="admin-reset-button"
-                onClick={resetFilters}
-              >
-                Reset
               </button>
             </div>
           </div>
@@ -1320,7 +1523,7 @@ const downloadSampleCSV = () => {
                                 }
 
                                 <span>
-                                  â€¢
+                                  •
                                 </span>
 
                                 {project.projectCode ||
@@ -1368,7 +1571,7 @@ const downloadSampleCSV = () => {
                                       0,
                                       2
                                     )
-                                : "â€”"}
+                                : "—"}
                             </span>
 
                             {project.pmName ||
@@ -1888,21 +2091,16 @@ const downloadSampleCSV = () => {
                       Select stage
                     </option>
 
-                    <option value="Sent">
-                      Sent
-                    </option>
-
-                    <option value="Hold">
-                      Hold
-                    </option>
-
-                    <option value="Draft">
-                      Draft
-                    </option>
-
-                    <option value="Review">
-                      Review
-                    </option>
+                    {EMAIL_STAGES.map(
+                      (stage) => (
+                        <option
+                          key={stage}
+                          value={stage}
+                        >
+                          {stage}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
               </div>
@@ -1927,29 +2125,18 @@ const downloadSampleCSV = () => {
                       })
                     }
                   >
-                    <option value="">
-                      Select stage
+                     <option value="">
+                      Project Stage: All
                     </option>
 
-                    <option value="Planning">
-                      Planning
-                    </option>
-
-                    <option value="Design">
-                      Design
-                    </option>
-
-                    <option value="Construction">
-                      Construction
-                    </option>
-
-                    <option value="Execution">
-                      Execution
-                    </option>
-
-                    <option value="Closure">
-                      Closure
-                    </option>
+                    {PROJECT_STAGES.map((stage) => (
+                      <option
+                        key={stage}
+                        value={stage}
+                      >
+                        {stage}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -2100,7 +2287,7 @@ const downloadSampleCSV = () => {
         >
           <div>
             {toast.success
-              ? "âœ“"
+              ? "✓"
               : "!"}
           </div>
 
@@ -2220,7 +2407,3 @@ const DrawerField = ({
 };
 
 export default AdminPage;
-
-
-
-
