@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Search,
   ShieldCheck,
   X,
+  Upload,
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
 import { apiRequest } from "../../lib/api";
@@ -303,6 +304,283 @@ const loadPMs = async () => {
           case "action-needed":
             return !project.pm;
           case "in-progress":
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
             return (
               project.pm &&
               String(
@@ -315,6 +593,283 @@ const loadPMs = async () => {
                 "Completed"
             );
           case "on-hold":
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
             return (
               String(
                 project.emailStage || ""
@@ -322,6 +877,283 @@ const loadPMs = async () => {
               "hold"
             );
           case "completed":
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
             return (
               project.projectStage === "Closure" ||
               project.projectStage === "Completed"
@@ -358,6 +1190,283 @@ const loadPMs = async () => {
         !filterStatus ||
         project.status === filterStatus;
 
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
+
       return (
         matchesSearch &&
         matchesStatusTab &&
@@ -372,6 +1481,283 @@ const loadPMs = async () => {
 
     return [...result].sort((a, b) => {
       if (sortOption === "oldest") {
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
         return (
           new Date(a.mailDate || 0) -
           new Date(b.mailDate || 0)
@@ -379,6 +1765,283 @@ const loadPMs = async () => {
       }
 
       if (sortOption === "age-desc") {
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
         return (
           (calculateAge(b.receivedDate) || 0) -
           (calculateAge(a.receivedDate) || 0)
@@ -392,6 +2055,283 @@ const loadPMs = async () => {
           String(b.projectName || "")
         );
       }
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
 
       return (
         new Date(b.mailDate || 0) -
@@ -860,6 +2800,283 @@ const loadPMs = async () => {
     );
   };
 
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
+
   return (
     <>
       <AdminHeader
@@ -870,19 +3087,47 @@ const loadPMs = async () => {
           setSearch(value)
         }
         searchPlaceholder="Search project, subject, PM..."
-        onRefresh={refreshProjects}
-        actions={
-          <button
-            type="button"
-            className="admin-add-mail-button"
-            onClick={() => {
-              resetProjectForm();
-              setShowAddModal(true);
-            }}
-          >
-            <Plus size={16} />
-            Add Project
-          </button>
+        onRefresh={refreshProjects}        actions={
+          <>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: "none" }}
+              onChange={handleImportCSV}
+            />
+
+            <button
+              type="button"
+              className="admin-export-button"
+              onClick={downloadSampleCSV}
+            >
+              <Download size={14} />
+              Download Sample
+            </button>
+
+            <button
+              type="button"
+              className="admin-export-button"
+              onClick={() => csvInputRef.current?.click()}
+              disabled={importingCSV}
+            >
+              <Upload size={14} />
+              {importingCSV ? "Importing..." : "Import CSV"}
+            </button>
+
+            <button
+              type="button"
+              className="admin-add-mail-button"
+              onClick={() => {
+                resetProjectForm();
+                setShowAddModal(true);
+              }}
+            >
+              <Plus size={16} />
+              Add Project
+            </button>
+          </>
         }
       />
 
@@ -964,6 +3209,283 @@ const loadPMs = async () => {
                       getStatusTabCount(
                         tab.key
                       );
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
 
                     return (
                       <button
@@ -1346,7 +3868,7 @@ const loadPMs = async () => {
                                 }
 
                                 <span>
-                                  •
+                                  â€¢
                                 </span>
 
                                 {project.projectCode ||
@@ -1394,7 +3916,7 @@ const loadPMs = async () => {
                                       0,
                                       2
                                     )
-                                : "—"}
+                                : "â€”"}
                             </span>
 
                             {project.pmName ||
@@ -2110,7 +4632,7 @@ const loadPMs = async () => {
         >
           <div>
             {toast.success
-              ? "✓"
+              ? "âœ“"
               : "!"}
           </div>
 
@@ -2148,6 +4670,283 @@ const MetricCard = ({
   highlighted,
   badge,
 }) => {
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
   return (
     <div
       className={`admin-metric-card ${
@@ -2189,6 +4988,283 @@ const StatusBadge = ({
   status,
 }) => {
   if (!status) {
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
     return (
       <span className="status-badge empty">
         -
@@ -2204,6 +5280,283 @@ const StatusBadge = ({
         "-"
       );
 
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
+
   return (
     <span
       className={`status-badge ${normalized}`}
@@ -2218,6 +5571,283 @@ const DrawerField = ({
   label,
   value,
 }) => {
+
+  /*
+   * ============================================================
+   * CSV DOWNLOAD / IMPORT
+   * ============================================================
+   */
+
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sampleRow = [
+      "Sample Project Email",
+      today,
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+      } else if (
+        (char === "\n" || char === "\r") &&
+        !insideQuotes
+      ) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+      } else {
+        value += char;
+      }
+    }
+
+    if (value !== "" || row.length) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
+  };
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length < 2) {
+        throw new Error(
+          "The CSV must contain a header row and at least one project row."
+        );
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const headers = rows[0].map((header) =>
+        String(header).trim()
+      );
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !headers.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      const columnIndex = Object.fromEntries(
+        headers.map((header, index) => [header, index])
+      );
+
+      let created = 0;
+      const errors = [];
+
+      for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+
+        const getValue = (header) =>
+          String(row[columnIndex[header]] ?? "").trim();
+
+        const projectName = getValue("Project Name");
+
+        if (!projectName) {
+          errors.push(
+            `Row ${rowIndex + 1}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = getValue("Project Manager");
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || pm.fullName || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowIndex + 1}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject: getValue("Mail Subject"),
+          mailDate: getValue("Mail Date") || undefined,
+          projectName,
+          projectCode: getValue("Project Code"),
+          projectType:
+            getValue("Type of Project") || undefined,
+          emailStage:
+            getValue("Email Stage") || undefined,
+          projectStage:
+            getValue("Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue("Project Location"),
+          scope: getValue("Project Scope"),
+          assignmentPriority:
+            getValue("Assignment Priority") || "Normal",
+          delegationNote: getValue("Delegation Note"),
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          created += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowIndex + 1}: ${
+              error.message || "Unable to create project."
+            }`
+          );
+        }
+      }
+
+      await loadProjects();
+
+      if (errors.length) {
+        showToast(
+          "CSV Import Completed with Errors",
+          `${created} project(s) created. ${errors.length} row(s) failed.`,
+          false
+        );
+
+        console.error("CSV import errors:", errors);
+      } else {
+        showToast(
+          "CSV Import Complete",
+          `${created} project(s) imported successfully.`
+        );
+      }
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      showToast(
+        "CSV Import Failed",
+        error.message || "Unable to import CSV.",
+        false
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
   return (
     <div className="drawer-field">
       <span>{label}</span>
