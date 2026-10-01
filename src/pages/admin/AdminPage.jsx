@@ -547,6 +547,7 @@ const loadPMs = async () => {
           pmId = matchedPM.id || matchedPM._id;
         }
 
+        console.log("CSV MAIL DATE RAW:", row[headerIndex["Mail Date"]], typeof row[headerIndex["Mail Date"]]);
         const payload = {
           subject: getValue(row, "Mail Subject"),
           mailDate: (() => { const value = getValue(row, "Mail Date"); if (!value) return undefined; const parts = value.split("/"); if (parts.length === 3) { const [day, month, year] = parts; return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0"); } return value; })(),
