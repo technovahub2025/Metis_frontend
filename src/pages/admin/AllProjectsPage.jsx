@@ -1,4 +1,4 @@
-import {
+﻿import {
   useMemo,
   useState,
 } from "react";
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
 import { useApiList } from "../../lib/useApiList";
+import { apiRequest } from "../../lib/api";
 import {
   calculateAge,
   formatDate,
@@ -87,6 +88,9 @@ const AllProjectsPage = () => {
 
   const [selectedProject, setSelectedProject] =
     useState(null);
+
+  const csvInputRef = useRef(null);
+  const [importingCSV, setImportingCSV] = useState(false);
 
   const pmOptions = useMemo(
     () =>
@@ -349,6 +353,335 @@ const AllProjectsPage = () => {
     URL.revokeObjectURL(url);
   };
 
+  // ------------------------------------------------------------
+  // DOWNLOAD SAMPLE CSV
+  // ------------------------------------------------------------
+  const downloadSampleCSV = () => {
+    const headers = [
+      "Mail Subject",
+      "Mail Date",
+      "Project Name",
+      "Project Code",
+      "Project Manager",
+      "Type of Project",
+      "Email Stage",
+      "Project Stage",
+      "Assignment Priority",
+      "Project Location",
+      "Project Scope",
+      "Delegation Note",
+    ];
+
+    const sampleRow = [
+      "Sample Project Email",
+      new Date().toISOString().slice(0, 10),
+      "Test Project",
+      "PRJ-001",
+      "Unassigned",
+      "RCC",
+      "Sent to Client",
+      "Acknowledged",
+      "Normal",
+      "Puducherry",
+      "Sample project scope",
+      "Sample delegation note",
+    ];
+
+    const csv = [headers, sampleRow]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "metis-project-sample.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  // ------------------------------------------------------------
+  // CSV PARSER
+  // Handles quoted CSV values and commas inside fields.
+  // ------------------------------------------------------------
+  const parseCSV = (text) => {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+
+      if (char === '"' && insideQuotes && next === '"') {
+        value += '"';
+        i += 1;
+        continue;
+      }
+
+      if (char === '"') {
+        insideQuotes = !insideQuotes;
+        continue;
+      }
+
+      if (char === "," && !insideQuotes) {
+        row.push(value);
+        value = "";
+        continue;
+      }
+
+      if ((char === "\n" || char === "\r") && !insideQuotes) {
+        if (char === "\r" && next === "\n") {
+          i += 1;
+        }
+
+        row.push(value);
+        value = "";
+
+        if (row.some((cell) => cell.trim() !== "")) {
+          rows.push(row);
+        }
+
+        row = [];
+        continue;
+      }
+
+      value += char;
+    }
+
+    if (value.length > 0 || row.length > 0) {
+      row.push(value);
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rows.push(row);
+      }
+    }
+
+    if (!rows.length) {
+      return [];
+    }
+
+    const headers = rows[0].map((header) =>
+      header.trim().replace(/^\uFEFF/, "")
+    );
+
+    return rows.slice(1).map((cells) => {
+      const record = {};
+
+      headers.forEach((header, index) => {
+        record[header] = (cells[index] || "").trim();
+      });
+
+      return record;
+    });
+  };
+
+  // ------------------------------------------------------------
+  // IMPORT CSV
+  // Creates each project through the same POST /api/projects
+  // endpoint used by Add Project.
+  // ------------------------------------------------------------
+  const handleImportCSV = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      setImportingCSV(true);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (!rows.length) {
+        throw new Error("The CSV file is empty.");
+      }
+
+      const requiredHeaders = [
+        "Mail Subject",
+        "Mail Date",
+        "Project Name",
+        "Project Code",
+        "Project Manager",
+        "Type of Project",
+        "Email Stage",
+        "Project Stage",
+        "Assignment Priority",
+        "Project Location",
+        "Project Scope",
+        "Delegation Note",
+      ];
+
+      const actualHeaders = Object.keys(rows[0]);
+
+      const missingHeaders = requiredHeaders.filter(
+        (header) => !actualHeaders.includes(header)
+      );
+
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing CSV columns: ${missingHeaders.join(", ")}`
+        );
+      }
+
+      // Load PM users so CSV can contain the PM name
+      // while the API receives the PM user ID.
+      const pmResponse = await apiRequest(
+        "/api/users?role=pm&active=true"
+      );
+
+      const pmUsers = Array.isArray(pmResponse?.users)
+        ? pmResponse.users
+        : Array.isArray(pmResponse?.data)
+          ? pmResponse.data
+          : Array.isArray(pmResponse)
+            ? pmResponse
+            : [];
+
+      let imported = 0;
+      const errors = [];
+
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index];
+        const rowNumber = index + 2;
+
+        if (!row["Project Name"]?.trim()) {
+          errors.push(
+            `Row ${rowNumber}: Project Name is required.`
+          );
+          continue;
+        }
+
+        const pmName = row["Project Manager"]?.trim();
+
+        let pmId;
+
+        if (
+          pmName &&
+          pmName.toLowerCase() !== "unassigned"
+        ) {
+          const matchedPM = pmUsers.find(
+            (pm) =>
+              String(pm.name || "")
+                .trim()
+                .toLowerCase() === pmName.toLowerCase()
+          );
+
+          if (!matchedPM) {
+            errors.push(
+              `Row ${rowNumber}: Project Manager "${pmName}" was not found.`
+            );
+            continue;
+          }
+
+          pmId = matchedPM.id || matchedPM._id;
+        }
+
+        const payload = {
+          subject:
+            row["Mail Subject"]?.trim() || "",
+
+          mailDate:
+            row["Mail Date"]?.trim() || undefined,
+
+          projectName:
+            row["Project Name"]?.trim() || "",
+
+          projectCode:
+            row["Project Code"]?.trim() || "",
+
+          projectType:
+            row["Type of Project"]?.trim() || undefined,
+
+          emailStage:
+            row["Email Stage"]?.trim() || undefined,
+
+          projectStage:
+            row["Project Stage"]?.trim() ||
+            "Acknowledged",
+
+          pm: pmId || undefined,
+
+          location:
+            row["Project Location"]?.trim() || "",
+
+          scope:
+            row["Project Scope"]?.trim() || "",
+
+          assignmentPriority:
+            row["Assignment Priority"]?.trim() ||
+            "Normal",
+
+          delegationNote:
+            row["Delegation Note"]?.trim() || "",
+        };
+
+        try {
+          await apiRequest("/api/projects", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: payload,
+          });
+
+          imported += 1;
+        } catch (error) {
+          errors.push(
+            `Row ${rowNumber}: ${
+              error.message || "Project creation failed."
+            }`
+          );
+        }
+      }
+
+      await refetch({ limit: 200 });
+
+      if (errors.length) {
+        showImportResult(imported, errors);
+      } else {
+        window.alert(
+          `${imported} project${
+            imported === 1 ? "" : "s"
+          } imported successfully.`
+        );
+      }
+    } catch (error) {
+      window.alert(
+        error.message || "Unable to import CSV."
+      );
+    } finally {
+      setImportingCSV(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
+    }
+  };
+
+  const showImportResult = (imported, errors) => {
+    window.alert(
+      `${imported} project${
+        imported === 1 ? "" : "s"
+      } imported successfully.\n\n` +
+      `Some rows could not be imported:\n\n` +
+      errors.join("\n")
+    );
+  };
   if (loading) {
     return (
       <>
@@ -403,14 +736,43 @@ const AllProjectsPage = () => {
         searchPlaceholder="Search projects, codes, PMs..."
         onRefresh={() => refetch({ limit: 200 })}
         actions={
-          <button
-            type="button"
-            className="admin-export-button"
-            onClick={exportCSV}
-          >
-            <Download size={14} />
-            Export
-          </button>
+          <>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: "none" }}
+              onChange={handleImportCSV}
+            />
+
+            <button
+              type="button"
+              className="admin-export-button"
+              onClick={downloadSampleCSV}
+            >
+              <Download size={14} />
+              Download Sample
+            </button>
+
+            <button
+              type="button"
+              className="admin-export-button"
+              onClick={() => csvInputRef.current?.click()}
+              disabled={importingCSV}
+            >
+              <Upload size={14} />
+              {importingCSV ? "Importing..." : "Import CSV"}
+            </button>
+
+            <button
+              type="button"
+              className="admin-export-button"
+              onClick={exportCSV}
+            >
+              <Download size={14} />
+              Export
+            </button>
+          </>
         }
       />
 
@@ -735,7 +1097,7 @@ const AllProjectsPage = () => {
 
                             <small>
                               {project.projectCode
-                                ? `${project.projectCode} • `
+                                ? `${project.projectCode} â€¢ `
                                 : ""}
                               {project.subject}
                             </small>
@@ -763,10 +1125,10 @@ const AllProjectsPage = () => {
                                     .join("")
                                     .slice(0, 2)
                                     .toUpperCase()
-                                : "—")}
+                                : "â€”")}
                           </span>
 
-                          {project.pmName || "—"}
+                          {project.pmName || "â€”"}
                         </span>
                       </td>
 
@@ -1019,8 +1381,8 @@ const ProjectDrawer = ({
             </h2>
 
             <p>
-              {project.projectType || "Project"} •{" "}
-              {project.projectStage || "—"}{" "}
+              {project.projectType || "Project"} â€¢{" "}
+              {project.projectStage || "â€”"}{" "}
               Stage
             </p>
           </div>
@@ -1126,3 +1488,5 @@ const ProjectDrawer = ({
 };
 
 export default AllProjectsPage;
+
+
