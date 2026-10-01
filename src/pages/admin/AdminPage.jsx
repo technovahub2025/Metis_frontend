@@ -517,6 +517,7 @@ const loadPMs = async () => {
 
       for (let index = 0; index < importedRows.length; index += 1) {
         const row = importedRows[index];
+        console.log("CSV MAIL DATE RAW:", row[PROJECT_CSV_HEADERS.indexOf("Mail Date")], typeof row[PROJECT_CSV_HEADERS.indexOf("Mail Date")]);
         const rowNumber = index + 2;
 
         const projectName = getValue(row, "Project Name");
