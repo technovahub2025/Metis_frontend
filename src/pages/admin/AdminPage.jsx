@@ -517,7 +517,6 @@ const loadPMs = async () => {
 
       for (let index = 0; index < importedRows.length; index += 1) {
         const row = importedRows[index];
-        console.log("CSV MAIL DATE RAW:", row[PROJECT_CSV_HEADERS.indexOf("Mail Date")], typeof row[PROJECT_CSV_HEADERS.indexOf("Mail Date")]);
         const rowNumber = index + 2;
 
         const projectName = getValue(row, "Project Name");
@@ -550,7 +549,7 @@ const loadPMs = async () => {
 
         const payload = {
           subject: getValue(row, "Mail Subject"),
-          mailDate: (() => { const value = getValue(row, "Mail Date"); if (!value) return undefined; const parts = value.split("/"); if (parts.length === 3) { const [day, month, year] = parts; return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0"); } return value; })(),
+          mailDate: (() => { const value = getValue(row, "Mail Date"); if (!value) return undefined; const parts = value.includes("/") ? value.split("/") : value.split("-"); if (parts.length === 3) { const [day, month, year] = parts; return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0"); } return value; })(),
           projectName,
           projectCode: getValue(row, "Project Code"),
           projectType: getValue(row, "Type of Project") || undefined,
