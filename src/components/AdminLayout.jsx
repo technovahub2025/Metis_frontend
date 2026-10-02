@@ -239,7 +239,7 @@ const AdminLayout = () => {
                 </strong>
 
                 <small>
-                  {ROLE_LABEL[role] || "â€”"}
+                  {ROLE_LABEL[role] || "—"}
                 </small>
               </div>
             )}

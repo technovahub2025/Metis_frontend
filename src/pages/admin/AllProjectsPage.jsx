@@ -1,4 +1,4 @@
-import {
+﻿import {
   useRef,
   useMemo,
   useState,
@@ -1127,10 +1127,10 @@ const AllProjectsPage = () => {
                                     .join("")
                                     .slice(0, 2)
                                     .toUpperCase()
-                                : "â€”")}
+                                : "-")}
                           </span>
 
-                          {project.pmName || "â€”"}
+                          {project.pmName || "-"}
                         </span>
                       </td>
 
@@ -1384,7 +1384,7 @@ const ProjectDrawer = ({
 
             <p>
               {project.projectType || "Project"} â€¢{" "}
-              {project.projectStage || "â€”"}{" "}
+              {project.projectStage || "-"}{" "}
               Stage
             </p>
           </div>
