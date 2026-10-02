@@ -1,8 +1,9 @@
-﻿import {
+import {
   useRef,
   useMemo,
   useState,
 } from "react";
+import * as XLSX from "xlsx";
 import {
   ClipboardList,
   Download,
@@ -506,8 +507,20 @@ const AllProjectsPage = () => {
     try {
       setImportingCSV(true);
 
-      const text = await file.text();
-      const rows = parseCSV(text);
+      let rows;
+
+      if (file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls")) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        rows = XLSX.utils.sheet_to_json(firstSheet, {
+          defval: "",
+        });
+      } else {
+        const text = await file.text();
+        rows = parseCSV(text);
+      }
 
       if (!rows.length) {
         throw new Error("The CSV file is empty.");
@@ -742,7 +755,7 @@ const AllProjectsPage = () => {
             <input
               ref={csvInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               style={{ display: "none" }}
               onChange={handleImportCSV}
             />

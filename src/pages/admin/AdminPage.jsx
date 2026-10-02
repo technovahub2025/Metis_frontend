@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
 import { downloadProjectSampleCSV, parseProjectCSV, PROJECT_CSV_HEADERS } from "../../lib/projectCsv";
+import * as XLSX from "xlsx";
 import { apiRequest } from "../../lib/api";
 import { calculateAge, EMAIL_STAGES, PROJECT_STAGES } from "../../lib/helpers";
 
@@ -479,8 +480,27 @@ const loadPMs = async () => {
     try {
       setImportingCSV(true);
 
-      const text = await file.text();
-      const rows = parseProjectCSV(text);
+      let rows;
+
+      if (file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls")) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        const excelRows = XLSX.utils.sheet_to_json(firstSheet, {
+          defval: "",
+        });
+
+        rows = [
+          PROJECT_CSV_HEADERS,
+          ...excelRows.map((row) =>
+            PROJECT_CSV_HEADERS.map((header) => row[header] ?? "")
+          ),
+        ];
+      } else {
+        const text = await file.text();
+        rows = parseProjectCSV(text);
+      }
 
       if (rows.length < 2) {
         showToast(
@@ -1143,7 +1163,7 @@ const loadPMs = async () => {
             <input
               ref={csvInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               onChange={handleCSVImport}
               style={{ display: "none" }}
             />
