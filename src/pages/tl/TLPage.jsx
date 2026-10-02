@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useApiList } from "../../lib/useApiList";
 import { TLHamburger } from "../../components/tl";
 import { PROJECT_STAGES } from "../../lib/helpers";
 import {
@@ -27,7 +28,14 @@ const TLPage = () => {
    * Keeping it empty prevents fake business data from becoming
    * permanent application data.
    */
-  const [projects, setProjects] = useState([]);
+  const {
+    data: projects = [],
+    loading,
+    error,
+    refetch,
+  } = useApiList("/api/projects", {
+    limit: 200,
+  });
 
   const [activeFilter, setActiveFilter] = useState("ALL");
   const [viewMode, setViewMode] = useState("table");
