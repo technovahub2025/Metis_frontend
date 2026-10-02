@@ -11,6 +11,7 @@ import {
   Mail,
   Pencil,
   Plus,
+  Search,
   ShieldCheck,
   X,
   Upload,
