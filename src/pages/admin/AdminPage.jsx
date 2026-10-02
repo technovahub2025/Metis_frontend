@@ -549,19 +549,28 @@ const loadPMs = async () => {
         }
 
         const payload = {
-        subject: newMail.subject.trim(),
-        mailDate: newMail.mailDate || undefined,
-        projectName: newMail.projectName.trim(),
-        projectCode: newMail.projectCode.trim(),
-        projectType: newMail.projectType || undefined,
-        emailStage: newMail.emailStage || undefined,
-        projectStage: newMail.projectStage || 'Acknowledged',
-        pm: newMail.pm || undefined,
-        location: newMail.location.trim(),
-        scope: newMail.scope.trim(),
-        assignmentPriority: newMail.assignmentPriority || 'Normal',
-        delegationNote: newMail.delegationNote.trim(),
-      };
+          subject: getValue(row, "Mail Subject"),
+          mailDate: (() => {
+            const value = getValue(row, "Mail Date");
+            if (!value) return undefined;
+            const parts = value.includes("/") ? value.split("/") : value.split("-");
+            if (parts.length === 3) {
+              const [day, month, year] = parts;
+              return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0");
+            }
+            return value;
+          })(),
+          projectName,
+          projectCode: getValue(row, "Project Code"),
+          projectType: getValue(row, "Type of Project") || undefined,
+          emailStage: getValue(row, "Email Stage") || undefined,
+          projectStage: getValue(row, "Project Stage") || "Acknowledged",
+          pm: pmId || undefined,
+          location: getValue(row, "Project Location"),
+          scope: getValue(row, "Project Scope"),
+          assignmentPriority: getValue(row, "Assignment Priority") || "Normal",
+          delegationNote: getValue(row, "Delegation Note"),
+        };
 
         try {
           await apiRequest("/api/projects", {
