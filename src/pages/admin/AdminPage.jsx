@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   X,
   Upload,
+  Trash2,
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
 import { downloadProjectSampleCSV, parseProjectCSV, PROJECT_CSV_HEADERS } from "../../lib/projectCsv";
@@ -893,6 +894,39 @@ const loadPMs = async () => {
       setSavingProject(false);
     }
   };
+  const handleDeleteProject = async (project) => {
+    const confirmed = window.confirm(
+      `Delete project "${project.projectName || project.subject || "this project"}"?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await apiRequest(`/api/projects/${project.id}`, {
+        method: "DELETE",
+      });
+
+      setMailRecords((previous) =>
+        previous.filter(
+          (item) => String(item.id) !== String(project.id)
+        )
+      );
+
+      if (selectedMail && String(selectedMail.id) === String(project.id)) {
+        setSelectedMail(null);
+      }
+
+      showToast("Project Deleted", "The project has been deleted successfully.");
+    } catch (error) {
+      console.error("Delete project error:", error);
+      showToast(
+        "Project Delete Failed",
+        error.message || "Unable to delete the project.",
+        false
+      );
+    }
+  };
+
   const refreshProjects = async () => {
     await loadProjects();
 
@@ -1767,6 +1801,15 @@ const loadPMs = async () => {
                             }
                           >
                             <Pencil size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="review-button"
+                            title="Delete"
+                            aria-label="Delete project"
+                            onClick={() => handleDeleteProject(project)}
+                          >
+                            <Trash2 size={15} />
                           </button>
                         </td>
                       </tr>
