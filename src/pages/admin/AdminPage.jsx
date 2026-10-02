@@ -10,7 +10,7 @@ import {
   HardHat,
   Mail,
   Pencil,
-  Search,
+  Plus,
   ShieldCheck,
   X,
   Upload,
