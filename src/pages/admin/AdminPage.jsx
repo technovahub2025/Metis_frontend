@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -33,6 +33,7 @@ const AdminPage = () => {
   const [filterEmailStage, setFilterEmailStage] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [sortOption, setSortOption] = useState("newest");
+  const [filterCalendarDate, setFilterCalendarDate] = useState("");
   const [statusTab, setStatusTab] = useState("all");
 
   const [selectedMail, setSelectedMail] = useState(null);
@@ -341,10 +342,43 @@ const loadPMs = async () => {
         }
       })();
 
+      const selectedPM = pmUsers.find(
+        (pm) =>
+          String(pm.id || pm._id || "") ===
+          String(filterPM)
+      );
+
+      const normalize = (value) =>
+        String(value ?? "")
+          .trim()
+          .toLowerCase();
+
+      const projectPMId =
+        typeof project.pm === "object"
+          ? project.pm?.id || project.pm?._id
+          : project.pm;
+
       const matchesPM =
         !filterPM ||
-        String(project.pm || "") ===
-          String(filterPM);
+        (filterPM === "unassigned"
+          ? !(
+              projectPMId ||
+              project.pmId ||
+              project.pmEmail ||
+              project.pmName
+            )
+          : [
+              projectPMId,
+              project.pmId,
+              project.pmEmail,
+              project.pmName,
+            ].some(
+              (value) =>
+                normalize(value) === normalize(filterPM) ||
+                normalize(value) === normalize(selectedPM?.id || selectedPM?._id) ||
+                normalize(value) === normalize(selectedPM?.email) ||
+                normalize(value) === normalize(selectedPM?.name)
+            ));
 
       const matchesTL =
         !filterTL ||
@@ -363,6 +397,21 @@ const loadPMs = async () => {
         !filterEmailStage ||
         project.emailStage ===
           filterEmailStage;
+      const toCalendarDate = (value) => {
+        if (!value) return "";
+        const raw = String(value).trim();
+        const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (dmy) {
+          return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+        }
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return "";
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+      };
+
+      const matchesCalendarDate =
+        !filterCalendarDate ||
+        toCalendarDate(project.mailDate) === filterCalendarDate;
 
       const matchesStatus =
         !filterStatus ||
@@ -370,6 +419,7 @@ const loadPMs = async () => {
 
       return (
         matchesSearch &&
+        matchesCalendarDate &&
         matchesStatusTab &&
         matchesPM &&
         matchesTL &&
@@ -419,7 +469,8 @@ const loadPMs = async () => {
     filterStage,
     filterEmailStage,
     filterStatus,
-    sortOption,
+    sortOption,
+    filterCalendarDate,
   ]);
 
   /*
@@ -653,6 +704,7 @@ const loadPMs = async () => {
     setFilterEmailStage("");
     setFilterStatus("");
     setSortOption("newest");
+    setFilterCalendarDate("");
     setStatusTab("all");
   };
 
@@ -1515,30 +1567,33 @@ const loadPMs = async () => {
                   )
                 )}
               </select>
+              <input
+                type="date"
+                className="admin-filter-select"
+                aria-label="Filter projects by mail received date"
+                title="Filter by mail received date"
+                value={filterCalendarDate}
+                onChange={(event) => setFilterCalendarDate(event.target.value)}
+              />
 
               <select
                 className="admin-filter-select"
                 value={sortOption}
-                onChange={(event) =>
-                  setSortOption(
-                    event.target.value
-                  )
-                }
+                onChange={(event) => setSortOption(event.target.value)}
+                aria-label="Sort projects"
+                title="Sort projects"
               >
                 <option value="newest">
                   Newest First
                 </option>
-
                 <option value="oldest">
                   Oldest First
                 </option>
-
                 <option value="age-desc">
-                  Age: Highest First
+                  Age - Highest First
                 </option>
-
                 <option value="name-az">
-                  Project Name (A-Z)
+                  Project Name - A-Z
                 </option>
               </select>
 
@@ -1687,7 +1742,7 @@ const loadPMs = async () => {
                                 }
 
                                 <span>
-                                  •
+                                  â€¢
                                 </span>
 
                                 {project.projectCode ||
@@ -1735,7 +1790,7 @@ const loadPMs = async () => {
                                       0,
                                       2
                                     )
-                                : "—"}
+                                : "â€”"}
                             </span>
 
                             {project.pmName ||
@@ -2474,7 +2529,7 @@ const loadPMs = async () => {
         >
           <div>
             {toast.success
-              ? "✓"
+              ? "âœ“"
               : "!"}
           </div>
 
@@ -2594,3 +2649,6 @@ const DrawerField = ({
 };
 
 export default AdminPage;
+
+
+

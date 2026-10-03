@@ -1,4 +1,4 @@
-import {
+﻿import {
   useRef,
   useMemo,
   useState,
@@ -62,6 +62,16 @@ const STATUS_TAB_VALUES = {
   "completed": ["Completed"],
 };
 
+const getPMKey = (project) =>
+  String(
+    project?.pmId ||
+      project?.pmEmail ||
+      project?.pmName ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
 const AllProjectsPage = () => {
   const {
     data: projects,
@@ -95,17 +105,28 @@ const AllProjectsPage = () => {
   const csvInputRef = useRef(null);
   const [importingCSV, setImportingCSV] = useState(false);
 
-  const pmOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          projects
-            .map((project) => project.pmName)
-            .filter(Boolean)
-        )
-      ),
-    [projects]
-  );
+  const pmOptions = useMemo(() => {
+    const uniquePMs = new Map();
+
+    projects.forEach((project) => {
+      const key = getPMKey(project);
+      if (!key) return;
+
+      if (!uniquePMs.has(key)) {
+        uniquePMs.set(key, {
+          key,
+          name:
+            String(project.pmName || "").trim() ||
+            String(project.pmEmail || "").trim() ||
+            "Unnamed PM",
+        });
+      }
+    });
+
+    return Array.from(uniquePMs.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [projects]);
 
   const tlOptions = useMemo(
     () =>
@@ -168,7 +189,7 @@ const AllProjectsPage = () => {
         matchesSearch &&
         matchesStatusTab &&
         (!filterPM ||
-          project.pmName === filterPM) &&
+          getPMKey(project) === filterPM) &&
         (!filterTL ||
           project.assignedTL === filterTL) &&
         (!filterType ||
@@ -195,7 +216,7 @@ const AllProjectsPage = () => {
         );
       }
 
-       if (sortBy === "age-desc") {
+      if (sortBy === "age-desc") {
         return (
           (calculateAge(b.receivedDate) || 0) -
           (calculateAge(a.receivedDate) || 0)
@@ -278,8 +299,7 @@ const AllProjectsPage = () => {
     1,
     Math.ceil(filtered.length / pageSize)
   );
-
-  const safePage = Math.min(
+    const safePage = Math.min(
     currentPage,
     totalPages
   );
@@ -477,25 +497,11 @@ const AllProjectsPage = () => {
       return [];
     }
 
-    const headers = rows[0].map((header) =>
-      header.trim().replace(/^\uFEFF/, "")
-    );
-
-    return rows.slice(1).map((cells) => {
-      const record = {};
-
-      headers.forEach((header, index) => {
-        record[header] = (cells[index] || "").trim();
-      });
-
-      return record;
-    });
+    return rows;
   };
 
-  // ------------------------------------------------------------
-  // IMPORT CSV
-  // Creates each project through the same POST /api/projects
-  // endpoint used by Add Project.
+    // ------------------------------------------------------------
+  // IMPORT CSV / EXCEL
   // ------------------------------------------------------------
   const handleImportCSV = async (event) => {
     const file = event.target.files?.[0];
@@ -509,10 +515,16 @@ const AllProjectsPage = () => {
 
       let rows;
 
-      if (file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls")) {
+      if (
+        file.name.toLowerCase().endsWith(".xlsx") ||
+        file.name.toLowerCase().endsWith(".xls")
+      ) {
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const workbook = XLSX.read(buffer, {
+          type: "array",
+        });
+        const firstSheet =
+          workbook.Sheets[workbook.SheetNames[0]];
 
         rows = XLSX.utils.sheet_to_json(firstSheet, {
           defval: "",
@@ -553,8 +565,7 @@ const AllProjectsPage = () => {
         );
       }
 
-      // Load PM users so CSV can contain the PM name
-      // while the API receives the PM user ID.
+      // Resolve PM names to user IDs for the API.
       const pmResponse = await apiRequest(
         "/api/users?role=pm&active=true"
       );
@@ -582,7 +593,6 @@ const AllProjectsPage = () => {
         }
 
         const pmName = row["Project Manager"]?.trim();
-
         let pmId;
 
         if (
@@ -607,40 +617,25 @@ const AllProjectsPage = () => {
         }
 
         const payload = {
-          subject:
-            row["Mail Subject"]?.trim() || "",
-
-          mailDate:
-            row["Mail Date"]?.trim() || undefined,
-
-          projectName:
-            row["Project Name"]?.trim() || "",
-
-          projectCode:
-            row["Project Code"]?.trim() || "",
-
+          subject: row["Mail Subject"]?.trim() || "",
+          mailDate: row["Mail Date"]?.trim() || undefined,
+          projectName: row["Project Name"]?.trim() || "",
+          projectCode: row["Project Code"]?.trim() || "",
           projectType:
             row["Type of Project"]?.trim() || undefined,
-
           emailStage:
             row["Email Stage"]?.trim() || undefined,
-
           projectStage:
             row["Project Stage"]?.trim() ||
             "Acknowledged",
-
           pm: pmId || undefined,
-
           location:
             row["Project Location"]?.trim() || "",
-
           scope:
             row["Project Scope"]?.trim() || "",
-
           assignmentPriority:
             row["Assignment Priority"]?.trim() ||
             "Normal",
-
           delegationNote:
             row["Delegation Note"]?.trim() || "",
         };
@@ -693,10 +688,14 @@ const AllProjectsPage = () => {
       `${imported} project${
         imported === 1 ? "" : "s"
       } imported successfully.\n\n` +
-      `Some rows could not be imported:\n\n` +
+      "Some rows could not be imported:\n\n" +
       errors.join("\n")
     );
   };
+
+  // ------------------------------------------------------------
+  // LOADING STATE
+  // ------------------------------------------------------------
   if (loading) {
     return (
       <>
@@ -712,6 +711,9 @@ const AllProjectsPage = () => {
     );
   }
 
+  // ------------------------------------------------------------
+  // ERROR STATE
+  // ------------------------------------------------------------
   if (error) {
     return (
       <>
@@ -737,8 +739,7 @@ const AllProjectsPage = () => {
       </>
     );
   }
-
-  return (
+    return (
     <>
       <AdminHeader
         title="All Projects"
@@ -854,16 +855,12 @@ const AllProjectsPage = () => {
                         : ""
                     }`}
                     onClick={() => {
-                      setStatusTab(
-                        tab.key
-                      );
+                      setStatusTab(tab.key);
                       setCurrentPage(1);
                     }}
                   >
                     <span className="count">
-                      {getStatusTabCount(
-                        tab.key
-                      )}
+                      {getStatusTabCount(tab.key)}
                     </span>
                     {tab.label}
                   </button>
@@ -887,9 +884,7 @@ const AllProjectsPage = () => {
                   type="text"
                   value={search}
                   onChange={(event) => {
-                    setSearch(
-                      event.target.value
-                    );
+                    setSearch(event.target.value);
                     setCurrentPage(1);
                   }}
                   placeholder="Search projects, codes, PMs..."
@@ -900,21 +895,17 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={filterPM}
                 onChange={(event) => {
-                  setFilterPM(
-                    event.target.value
-                  );
+                  setFilterPM(event.target.value);
                   setCurrentPage(1);
                 }}
               >
-                <option value="">
-                  PM Lead: All
-                </option>
-                {pmOptions.map((name) => (
+                <option value="">PM Lead: All</option>
+                {pmOptions.map((pm) => (
                   <option
-                    key={name}
-                    value={name}
+                    key={pm.key}
+                    value={pm.key}
                   >
-                    {name}
+                    {pm.name}
                   </option>
                 ))}
               </select>
@@ -923,15 +914,11 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={filterTL}
                 onChange={(event) => {
-                  setFilterTL(
-                    event.target.value
-                  );
+                  setFilterTL(event.target.value);
                   setCurrentPage(1);
                 }}
               >
-                <option value="">
-                  Team Lead: All
-                </option>
+                <option value="">Team Lead: All</option>
                 {tlOptions.map((name) => (
                   <option
                     key={name}
@@ -946,15 +933,11 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={filterType}
                 onChange={(event) => {
-                  setFilterType(
-                    event.target.value
-                  );
+                  setFilterType(event.target.value);
                   setCurrentPage(1);
                 }}
               >
-                <option value="">
-                  Project Type: All
-                </option>
+                <option value="">Project Type: All</option>
                 {PROJECT_TYPES.map((type) => (
                   <option
                     key={type}
@@ -969,15 +952,11 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={filterStage}
                 onChange={(event) => {
-                  setFilterStage(
-                    event.target.value
-                  );
+                  setFilterStage(event.target.value);
                   setCurrentPage(1);
                 }}
               >
-                <option value="">
-                  Project Stage: All
-                </option>
+                <option value="">Project Stage: All</option>
                 {PROJECT_STAGES.map((stage) => (
                   <option
                     key={stage}
@@ -992,15 +971,11 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={filterStatus}
                 onChange={(event) => {
-                  setFilterStatus(
-                    event.target.value
-                  );
+                  setFilterStatus(event.target.value);
                   setCurrentPage(1);
                 }}
               >
-                <option value="">
-                  Status: All
-                </option>
+                <option value="">Status: All</option>
                 {STATUSES.map((status) => (
                   <option
                     key={status}
@@ -1015,9 +990,7 @@ const AllProjectsPage = () => {
                 className="admin-filter-select"
                 value={sortBy}
                 onChange={(event) => {
-                  setSortBy(
-                    event.target.value
-                  );
+                  setSortBy(event.target.value);
                   setCurrentPage(1);
                 }}
               >
@@ -1028,19 +1001,18 @@ const AllProjectsPage = () => {
                   Oldest First
                 </option>
                 <option value="age-asc">
-                  Age: Lowest First
+                  Age: Low to High
                 </option>
                 <option value="age-desc">
-                  Age: Highest First
+                  Age: High to Low
                 </option>
                 <option value="name-az">
-                  Project Name (A-Z)
+                  Project Name: A–Z
                 </option>
               </select>
             </div>
           </div>
-
-          <div className="admin-table-wrapper">
+                    <div className="admin-table-wrapper">
             <table className="admin-mail-table">
               <thead>
                 <tr>
@@ -1051,13 +1023,9 @@ const AllProjectsPage = () => {
                   <th>Stage</th>
                   <th>Status</th>
                   <th>Received</th>
-                  <th className="center">
-                    Age
-                  </th>
+                  <th className="center">Age</th>
                   <th>Last Activity</th>
-                  <th className="right">
-                    Actions
-                  </th>
+                  <th className="right">Actions</th>
                 </tr>
               </thead>
 
@@ -1075,15 +1043,12 @@ const AllProjectsPage = () => {
                       <h3>No Projects Found</h3>
 
                       <p>
-                        No construction projects
-                        match your active search
-                        terms or filter
-                        combinations.
+                        No construction projects match
+                        your active search terms or
+                        filter combinations.
                       </p>
 
-                      <button
-                        onClick={resetFilters}
-                      >
+                      <button onClick={resetFilters}>
                         Clear All Filters
                       </button>
                     </td>
@@ -1099,20 +1064,17 @@ const AllProjectsPage = () => {
                       <td>
                         <div className="mail-subject-cell">
                           <div className="mail-icon">
-                            <ClipboardList
-                              size={14}
-                            />
+                            <ClipboardList size={14} />
                           </div>
 
                           <div>
                             <strong>
-                              {project.projectName ||
-                                "-"}
+                              {project.projectName || "-"}
                             </strong>
 
                             <small>
                               {project.projectCode
-                                ? `${project.projectCode} â€¢ `
+                                ? `${project.projectCode} • `
                                 : ""}
                               {project.subject}
                             </small>
@@ -1133,10 +1095,7 @@ const AllProjectsPage = () => {
                               (project.pmName
                                 ? project.pmName
                                     .split(/\s+/)
-                                    .map(
-                                      (name) =>
-                                        name[0]
-                                    )
+                                    .map((name) => name[0])
                                     .join("")
                                     .slice(0, 2)
                                     .toUpperCase()
@@ -1153,25 +1112,20 @@ const AllProjectsPage = () => {
                             {project.assignedTL
                               ? project.assignedTL
                                   .split(/\s+/)
-                                  .map(
-                                    (name) =>
-                                      name[0]
-                                  )
+                                  .map((name) => name[0])
                                   .join("")
                                   .slice(0, 2)
                                   .toUpperCase()
                               : ""}
                           </span>
 
-                          {project.assignedTL ||
-                            "Unassigned"}
+                          {project.assignedTL || "Unassigned"}
                         </span>
                       </td>
 
                       <td>
                         <span className="project-stage-badge">
-                          {project.projectStage ||
-                            "-"}
+                          {project.projectStage || "-"}
                         </span>
                       </td>
 
@@ -1187,9 +1141,7 @@ const AllProjectsPage = () => {
                       </td>
 
                       <td>
-                        {formatDate(
-                          project.receivedDate
-                        )}
+                        {formatDate(project.receivedDate)}
                       </td>
 
                       <td className="center">
@@ -1202,9 +1154,7 @@ const AllProjectsPage = () => {
                       </td>
 
                       <td>
-                        {formatDate(
-                          project.lastActivity
-                        )}
+                        {formatDate(project.lastActivity)}
                       </td>
 
                       <td
@@ -1216,9 +1166,7 @@ const AllProjectsPage = () => {
                         <button
                           className="review-button"
                           onClick={() =>
-                            setSelectedProject(
-                              project
-                            )
+                            setSelectedProject(project)
                           }
                         >
                           <Eye size={14} />
@@ -1256,15 +1204,9 @@ const AllProjectsPage = () => {
                   setCurrentPage(1);
                 }}
               >
-                <option value={10}>
-                  10 per page
-                </option>
-                <option value={25}>
-                  25 per page
-                </option>
-                <option value={50}>
-                  50 per page
-                </option>
+                <option value={10}>10 per page</option>
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
               </select>
 
               <button
@@ -1282,15 +1224,10 @@ const AllProjectsPage = () => {
               <span>{safePage}</span>
 
               <button
-                disabled={
-                  safePage === totalPages
-                }
+                disabled={safePage === totalPages}
                 onClick={() =>
                   setCurrentPage((page) =>
-                    Math.min(
-                      totalPages,
-                      page + 1
-                    )
+                    Math.min(totalPages, page + 1)
                   )
                 }
               >
@@ -1300,8 +1237,7 @@ const AllProjectsPage = () => {
             </div>
           </div>
         </section>
-
-        {selectedProject && (
+                {selectedProject && (
           <ProjectDrawer
             project={selectedProject}
             onClose={() =>
@@ -1391,14 +1327,11 @@ const ProjectDrawer = ({
               #{project.id}
             </span>
 
-            <h2>
-              {project.projectName}
-            </h2>
+            <h2>{project.projectName}</h2>
 
             <p>
-              {project.projectType || "Project"} â€¢{" "}
-              {project.projectStage || "-"}{" "}
-              Stage
+              {project.projectType || "Project"} •{" "}
+              {project.projectStage || "-"} Stage
             </p>
           </div>
 
@@ -1503,5 +1436,3 @@ const ProjectDrawer = ({
 };
 
 export default AllProjectsPage;
-
-

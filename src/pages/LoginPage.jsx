@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { apiRequest } from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import {
@@ -78,9 +78,14 @@ const handleSubmit = async (e) => {
       admin: "/admin",
       pm: "/pm",
       tl: "/tl",
+      super_admin: "/super-admin",
     };
 
-    const destination = roleRoutes[role];
+    console.log("LOGIN ROLE JSON:", JSON.stringify(role));
+console.log("ROLE TYPE:", typeof role);
+console.log("ROLE ROUTES:", roleRoutes);
+
+const destination = roleRoutes[role];
 
     if (!destination) {
       sessionStorage.removeItem("metis_token");
@@ -252,7 +257,7 @@ const handleSubmit = async (e) => {
                       e.target.value
                     )
                   }
-                  placeholder="••••••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   autoComplete="current-password"
                 />
 
@@ -323,7 +328,7 @@ const handleSubmit = async (e) => {
               ) : success ? (
                 <>
                   <span>
-                    Verified ✓
+                    Verified âœ“
                   </span>
 
                   <Check />

@@ -27,6 +27,11 @@ import TLAllProjectsPage from "./pages/tl/TLAllProjectsPage";
 import TLLogPage from "./pages/tl/TLLogPage";
 import TLSettingsPage from "./pages/tl/TLSettingsPage";
 
+import SuperAdminLayout from "./components/SuperAdminLayout";
+import SuperAdminPage from "./pages/superadmin/SuperAdminPage";
+import SuperAdminUsersPage from "./pages/superadmin/SuperAdminUsersPage";
+import SuperAdminProjectsPage from "./pages/superadmin/SuperAdminProjectsPage";
+
 function App() {
   return (
     <BrowserRouter>
@@ -114,6 +119,26 @@ function App() {
           <Route
             path="/tl/settings"
             element={<TLSettingsPage />}
+          />
+
+        </Route>
+
+        {/* ================= SUPER ADMIN ================= */}
+        <Route element={<SuperAdminLayout />}>
+
+          <Route
+            path="/super-admin"
+            element={<SuperAdminPage />}
+          />
+
+          <Route
+            path="/super-admin/users"
+            element={<SuperAdminUsersPage />}
+          />
+
+          <Route
+            path="/super-admin/projects"
+            element={<SuperAdminProjectsPage />}
           />
 
         </Route>
