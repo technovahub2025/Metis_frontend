@@ -79,10 +79,25 @@ const TeamManagementPage = () => {
     loadUsers();
   }, []);
 
+  /*
+   * Admin Team Management: only PM and TL users
+   * are visible. Super Admin and Admin accounts
+   * are excluded entirely.
+   */
+  const adminTeamUsers = useMemo(
+    () =>
+      users.filter(
+        (user) =>
+          user.role === "pm" ||
+          user.role === "tl"
+      ),
+    [users]
+  );
+
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    const result = users.filter((user) => {
+    const result = adminTeamUsers.filter((user) => {
       const matchesSearch =
         !query ||
         String(user.name || "")
@@ -148,7 +163,7 @@ const TeamManagementPage = () => {
       );
     });
   }, [
-    users,
+    adminTeamUsers,
     search,
     roleFilter,
     statusFilter,
@@ -157,21 +172,18 @@ const TeamManagementPage = () => {
 
   const statistics = useMemo(() => {
     return {
-      total: users.length,
-      admins: users.filter(
-        (user) => user.role === "admin"
-      ).length,
-      pms: users.filter(
+      total: adminTeamUsers.length,
+      pms: adminTeamUsers.filter(
         (user) => user.role === "pm"
       ).length,
-      tls: users.filter(
+      tls: adminTeamUsers.filter(
         (user) => user.role === "tl"
       ).length,
-      active: users.filter(
+      active: adminTeamUsers.filter(
         (user) => user.active !== false
       ).length,
     };
-  }, [users]);
+  }, [adminTeamUsers]);
 
   const resetFilters = () => {
     setSearch("");
@@ -406,6 +418,20 @@ const TeamManagementPage = () => {
       .toUpperCase();
   };
 
+  const formatTeamMemberName = (name) => {
+    if (!name || !String(name).trim()) {
+      return "Unnamed User";
+    }
+
+    const parts = String(name).trim().split(/\s+/);
+
+    if (parts.length === 2 && parts[0].length === 1) {
+      return parts[1];
+    }
+
+    return name;
+  };
+
   const formatRole = (role) => {
     if (role === "admin") return "Admin";
     if (role === "pm") return "Project Manager";
@@ -482,7 +508,7 @@ const TeamManagementPage = () => {
 
                   <span className="admin-showing-badge">
                     Showing {filteredUsers.length} of{" "}
-                    {users.length}
+                    {adminTeamUsers.length}
                   </span>
                 </div>
               </div>
@@ -499,7 +525,7 @@ const TeamManagementPage = () => {
                   {
                     key: "active",
                     label: "Active",
-                    count: users.filter(
+                    count: adminTeamUsers.filter(
                       (user) =>
                         user.active !== false
                     ).length,
@@ -507,7 +533,7 @@ const TeamManagementPage = () => {
                   {
                     key: "inactive",
                     label: "Inactive",
-                    count: users.filter(
+                    count: adminTeamUsers.filter(
                       (user) =>
                         user.active === false
                     ).length,
@@ -557,10 +583,6 @@ const TeamManagementPage = () => {
               >
                 <option value="all">
                   Role: All
-                </option>
-
-                <option value="admin">
-                  Admin
                 </option>
 
                 <option value="pm">
@@ -641,15 +663,14 @@ const TeamManagementPage = () => {
                         <td>
                           <div className="team-member-cell">
                             <div className="team-member-avatar">
-                              {getInitials(
-                                user.name
-                              )}
+                              {user.name
+                                ? user.name.trim().charAt(0).toUpperCase()
+                                : "U"}
                             </div>
 
                             <div>
                               <strong>
-                                {user.name ||
-                                  "Unnamed User"}
+                                {formatTeamMemberName(user.name)}
                               </strong>
 
                               <small>
@@ -874,10 +895,6 @@ const TeamManagementPage = () => {
 
                     <option value="tl">
                       Team Lead
-                    </option>
-
-                    <option value="admin">
-                      Admin
                     </option>
                   </select>
                 </label>

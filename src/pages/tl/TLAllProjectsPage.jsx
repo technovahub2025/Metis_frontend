@@ -4,7 +4,6 @@ import {
 } from "react";
 
 import {
-  Bell,
   Briefcase,
   Building2,
   CheckCircle2,
@@ -224,15 +223,6 @@ const TLAllProjectsPage = () => {
                 Supervising PM
               </b>
             </div>
-
-            <button
-              className="tl-icon-button"
-              title="Notifications"
-              type="button"
-            >
-              <Bell size={17} />
-              <span className="tl-notification-dot" />
-            </button>
 
             <button
               className="tl-icon-button"

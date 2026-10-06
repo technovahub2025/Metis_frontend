@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Bell,
   Copy,
   LogOut,
   RefreshCw,
@@ -56,14 +55,6 @@ const TLSettingsPage = () => {
               <strong className="tl-pm-avatar">PM</strong>
               <b>Supervising PM</b>
             </div>
-
-            <button
-              className="tl-icon-button"
-              title="Notifications"
-            >
-              <Bell size={17} />
-              <span className="tl-notification-dot" />
-            </button>
 
             <button
               className="tl-icon-button"

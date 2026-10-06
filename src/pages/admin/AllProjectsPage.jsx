@@ -28,10 +28,10 @@ import {
 } from "../../lib/helpers";
 
 const PROJECT_TYPES = [
-  "Residential",
-  "Commercial",
-  "Industrial",
-  "Infrastructure",
+        "RCC",
+        "Steel",
+        "Outsource",
+        "PMC",
 ];
 
 const STATUSES = [
@@ -71,6 +71,20 @@ const getPMKey = (project) =>
   )
     .trim()
     .toLowerCase();
+
+const formatPMName = (name) => {
+  if (!name || !String(name).trim()) {
+    return "Unassigned";
+  }
+
+  const parts = String(name).trim().split(/\s+/);
+
+  if (parts.length === 2 && parts[0].length === 1) {
+    return parts[1];
+  }
+
+  return name;
+};
 
 const AllProjectsPage = () => {
   const {
@@ -343,9 +357,9 @@ const AllProjectsPage = () => {
       project.projectStage,
       project.status,
       project.pmName,
-      project.assignedTL,
-      project.receivedDate,
-      calculateAge(project.receivedDate),
+      project.tlName,
+      project.mailDate,
+      project.ageDays ?? 0,
     ]);
 
     const csv = [headers, ...rows]
@@ -1089,7 +1103,7 @@ const AllProjectsPage = () => {
                       </td>
 
                       <td>
-                        <span className="pm-pill">
+                        <span className={`pm-pill ${project.pmName ? "pm-assigned" : "pm-unassigned"}`}>
                           <span>
                             {project.pmInitials ||
                               (project.pmName
@@ -1102,24 +1116,24 @@ const AllProjectsPage = () => {
                                 : "-")}
                           </span>
 
-                          {project.pmName || "-"}
+                          {formatPMName(project.pmName)}
                         </span>
                       </td>
 
                       <td>
-                        <span className="pm-pill">
+                        <span className={`pm-pill ${project.tlName ? "pm-assigned" : "pm-unassigned"}`}>
                           <span>
-                            {project.assignedTL
-                              ? project.assignedTL
-                                  .split(/\s+/)
-                                  .map((name) => name[0])
-                                  .join("")
-                                  .slice(0, 2)
-                                  .toUpperCase()
-                              : ""}
+                              {project.tlName
+                                ? project.tlName
+                                    .split(/\s+/)
+                                    .map((name) => name[0])
+                                    .join("")
+                                    .slice(0, 2)
+                                    .toUpperCase()
+                                : ""}
                           </span>
 
-                          {project.assignedTL || "Unassigned"}
+                          {formatPMName(project.tlName)}
                         </span>
                       </td>
 
@@ -1141,14 +1155,12 @@ const AllProjectsPage = () => {
                       </td>
 
                       <td>
-                        {formatDate(project.receivedDate)}
+                        {formatDate(project.mailDate)}
                       </td>
 
                       <td className="center">
                         <span className="age-badge">
-                          {calculateAge(
-                            project.receivedDate
-                          ) ?? 0}{" "}
+                          {project.ageDays ?? 0}{" "}
                           days
                         </span>
                       </td>
@@ -1382,14 +1394,20 @@ const ProjectDrawer = ({
               formatDate(project.mailDate)
             )}
             {drawerField(
+              "Start Date",
+              formatDate(project.startDate)
+            )}
+            {drawerField(
+              "End Date",
+              formatDate(project.endDate)
+            )}
+            {drawerField(
               "Received Date",
               formatDate(project.receivedDate)
             )}
             {drawerField(
               "Age",
-              `${calculateAge(
-                project.receivedDate
-              ) ?? 0} days old`
+              `${project.ageDays ?? 0} days old`
             )}
             {drawerField(
               "Last Activity",

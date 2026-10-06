@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 
 import {
-  Bell,
   Filter,
   Mail,
   RefreshCw,
@@ -110,14 +109,6 @@ const TLLogPage = () => {
               <strong className="tl-pm-avatar">PM</strong>
               <b>Supervising PM</b>
             </div>
-
-            <button
-              className="tl-icon-button"
-              title="Notifications"
-            >
-              <Bell size={17} />
-              <span className="tl-notification-dot" />
-            </button>
 
             <button
               className="tl-icon-button"

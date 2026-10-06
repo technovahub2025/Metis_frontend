@@ -14,7 +14,6 @@ import {
   Inbox,
   LogOut,
   Mail,
-  Settings,
   Users,
 } from "lucide-react";
 import { SidebarContext } from "../lib/SidebarContext";
@@ -200,30 +199,11 @@ const AdminLayout = () => {
                   onClick={() => navigate("/admin/team-management")}
                 >
                   <Users size={18} />
-                  {sidebarOpen && (
-                    <span>Team Management</span>
-                  )}
-                </button>
-
-                {/* SETTINGS */}
-                <button
-                  type="button"
-                  title="Integration & Settings"
-                  className={`admin-nav-item ${
-                    isActive("/admin/settings")
-                      ? "active"
-                      : ""
-                  }`}
-                  onClick={() => navigate("/admin/settings")}
-                >
-                  <Settings size={18} />
-                  {sidebarOpen && (
-                    <span>
-                      Integration &amp; Settings
-                    </span>
-                  )}
-                </button>
-              </nav>
+                 {sidebarOpen && (
+                   <span>Team Management</span>
+                 )}
+               </button>
+             </nav>
 
           {/* USER AREA */}
           <div className="admin-sidebar-user">

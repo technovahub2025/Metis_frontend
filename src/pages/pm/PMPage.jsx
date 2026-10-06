@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   Search,
-  Bell,
   RotateCcw,
   FolderKanban,
   Mail,
@@ -24,8 +23,8 @@ import {
   getCurrentUser,
 } from "../../lib/api";
 import { PROJECT_STAGES } from "../../lib/helpers";
-
 import { PMHamburger } from "../../components/pm";
+import NotificationBell from "../../components/NotificationBell";
 
 const PMPage = () => {
   /*
@@ -66,6 +65,9 @@ const PMPage = () => {
 
   const [statusFilter, setStatusFilter] =
     useState("all");
+
+  const [savingStatus, setSavingStatus] =
+    useState(false);
 
   const [sortBy, setSortBy] =
     useState("newest");
@@ -621,8 +623,10 @@ const PMPage = () => {
     );
 
     setWorkingStatus(
-      project.status ||
-        "In Progress"
+      project.status &&
+      ["In Progress", "In Review", "On Hold", "Completed"].includes(project.status)
+        ? project.status
+        : "In Progress"
     );
 
     setStatusSaved(false);
@@ -631,7 +635,30 @@ const PMPage = () => {
     setShowDetailsModal(
       true
     );
-  };
+   };
+
+  /*
+   * ============================================================
+   * HANDLE NOTIFICATION CLICK — open project details
+   * ============================================================
+   */
+
+   const handleNotificationProjectClick = (
+     projectId
+   ) => {
+     const project =
+       projects.find(
+         (p) =>
+           String(p.id) ===
+           String(projectId) ||
+           String(p._id) ===
+             String(projectId)
+       );
+
+     if (project) {
+       openDetails(project);
+     }
+   };
 
   /*
    * ============================================================
@@ -798,6 +825,7 @@ const PMPage = () => {
       try {
         setErrorMessage("");
         setStatusSaved(false);
+        setSavingStatus(true);
 
         const response =
           await apiRequest(
@@ -847,10 +875,12 @@ const PMPage = () => {
           error
         );
 
-        setErrorMessage(
+         setErrorMessage(
           error.message ||
             "Unable to save project status."
         );
+      } finally {
+        setSavingStatus(false);
       }
     };
 
@@ -918,15 +948,11 @@ const PMPage = () => {
             <RotateCcw />
           </button>
 
-          <button
-            type="button"
-            className="metis-pm-icon-button notification"
-            title="Notifications"
-          >
-            <Bell />
-
-            <span />
-          </button>
+          <NotificationBell
+            onProjectClick={
+              handleNotificationProjectClick
+            }
+          />
         </div>
       </header>
 
@@ -2193,6 +2219,10 @@ const PMPage = () => {
                         In Progress (Active Work)
                       </option>
 
+                      <option value="In Review">
+                        In Review (Under PM Review)
+                      </option>
+
                       <option value="On Hold">
                         On Hold (Pending
                         Clarifications)
@@ -2242,7 +2272,7 @@ const PMPage = () => {
                         )
                           .slice(
                             0,
-                            2
+                            1
                           )
                           .toUpperCase()}
                       </div>
@@ -2306,6 +2336,22 @@ const PMPage = () => {
                         {selectedProject.mailDate
                           ? new Date(
                               selectedProject.mailDate
+                            ).toLocaleDateString(
+                              "en-IN"
+                            )
+                          : "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <label>
+                        Start Date
+                      </label>
+
+                      <strong>
+                        {selectedProject.startDate
+                          ? new Date(
+                              selectedProject.startDate
                             ).toLocaleDateString(
                               "en-IN"
                             )
@@ -2447,13 +2493,16 @@ const PMPage = () => {
                 <button
                   type="button"
                   className="metis-pm-primary-button"
+                  disabled={savingStatus}
                   onClick={
                     handleSaveStatus
                   }
                 >
                   <Save />
 
-                  Save Status Changes
+                  {savingStatus
+                    ? "Saving..."
+                    : "Save Status Changes"}
                 </button>
               </div>
 

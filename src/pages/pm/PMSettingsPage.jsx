@@ -5,8 +5,7 @@ import {
   User,
   ShieldCheck,
   SlidersHorizontal,
-  RefreshCw,
-  ArrowLeft,
+   RefreshCw,
   Settings,
 } from "lucide-react";
 
@@ -39,18 +38,9 @@ const PMSettingsPage = () => {
       <main className="metis-pm-main">
         <header className="metis-pm-topbar">
           <div className="metis-pm-topbar-left">
-            <PMHamburger />
+             <PMHamburger />
 
-            <button
-              type="button"
-              className="metis-pm-back-button"
-              onClick={() => navigate("/pm")}
-              title="Back to My Projects"
-            >
-              <ArrowLeft size={17} />
-            </button>
-
-            <div>
+             <div>
               <h1>SETTINGS</h1>
 
               <span>
@@ -69,14 +59,6 @@ const PMSettingsPage = () => {
               }
             >
               <RefreshCw size={16} />
-            </button>
-
-            <button
-              type="button"
-              className="metis-pm-icon-button"
-              title="Notifications"
-            >
-              <Bell size={16} />
             </button>
           </div>
         </header>

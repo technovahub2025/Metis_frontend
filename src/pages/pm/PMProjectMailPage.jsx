@@ -1,430 +1,880 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  FolderKanban,
-  Mail,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Briefcase,
   Building2,
-  Search,
+  CheckCircle2,
+  Filter,
+  PauseCircle,
   RefreshCw,
-  Bell,
-  CalendarDays,
-  Tag,
-  Clock3,
-  ArrowLeft,
+  Search,
+  Zap,
 } from "lucide-react";
 
-import { apiRequest } from "../../lib/api";
+import { useApiList } from "../../lib/useApiList";
+import {
+  calculateAge,
+  formatDate,
+  PROJECT_STAGES,
+} from "../../lib/helpers";
 import { PMHamburger } from "../../components/pm";
+import NotificationBell from "../../components/NotificationBell";
+
+import "../../index.css";
 
 const PMProjectMailPage = () => {
-  const navigate = useNavigate();
+  const {
+    data: projects,
+    total,
+    loading,
+    error,
+    refetch,
+  } = useApiList("/api/projects", {
+    limit: 100,
+  });
 
-  const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStage, setFilterStage] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
 
-  const loadProjects = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await apiRequest(
-        "/api/projects?limit=100"
-      );
-
-      setProjects(
-        Array.isArray(response?.data)
-          ? response.data
-          : Array.isArray(response)
-            ? response
-            : []
-      );
-    } catch (err) {
-      console.error(
-        "Failed to load project mail:",
-        err
-      );
-
-      setError(
-        err?.message ||
-          "Unable to load project mail information."
-      );
-    } finally {
-      setLoading(false);
-    }
+  const handleRefresh = () => {
+    refetch();
   };
 
-  useEffect(() => {
-    loadProjects();
-  }, []);
+  const clearFilters = () => {
+    setSearch("");
+    setFilterType("all");
+    setFilterStage("all");
+    setFilterStatus("all");
+    setSortBy("newest");
+  };
 
-  const filteredProjects = useMemo(() => {
-    const value = search.trim().toLowerCase();
+  /*
+   * ==========================================
+   * METRICS
+   * ==========================================
+   */
+  const metrics = useMemo(() => {
+    return {
+      total: projects.length,
 
-    if (!value) {
-      return projects;
-    }
+      inProgress: projects.filter(
+        (project) =>
+          project.status ===
+          "In Progress"
+      ).length,
 
-    return projects.filter((project) =>
-      [
-        project.subject,
-        project.projectName,
-        project.projectCode,
-        project.projectType,
-        project.emailStage,
-        project.projectStage,
-        project.status,
-        project.location,
-      ]
-        .filter(Boolean)
-        .some((field) =>
-          String(field)
-            .toLowerCase()
-            .includes(value)
-        )
+      onHold: projects.filter(
+        (project) =>
+          project.status ===
+          "On Hold"
+      ).length,
+
+      completed: projects.filter(
+        (project) =>
+          project.status ===
+          "Completed"
+      ).length,
+    };
+  }, [projects]);
+
+  /*
+   * ==========================================
+   * FILTER + SORT
+   * ==========================================
+   */
+  const filtered = useMemo(() => {
+    const query = search
+      .toLowerCase()
+      .trim();
+
+    const result = projects.filter(
+      (project) => {
+        const projectName =
+          project.projectName
+            ?.toLowerCase() || "";
+
+        const projectCode =
+          project.projectCode
+            ?.toLowerCase() || "";
+
+        const subject =
+          project.subject
+            ?.toLowerCase() || "";
+
+        const matchesSearch =
+          !query ||
+          projectName.includes(query) ||
+          projectCode.includes(query) ||
+          subject.includes(query);
+
+        const matchesType =
+          filterType ===
+            "all" ||
+          project.projectType === filterType;
+
+        const matchesStage =
+          filterStage ===
+            "all" ||
+          project.projectStage ===
+            filterStage;
+
+        const matchesStatus =
+          filterStatus ===
+            "all" ||
+          project.status === filterStatus;
+
+        return (
+          matchesSearch &&
+          matchesType &&
+          matchesStage &&
+          matchesStatus
+        );
+      }
     );
-  }, [projects, search]);
 
-  const formatDate = (value) => {
-    if (!value) {
-      return "—";
-    }
+    return [...result].sort(
+      (a, b) => {
+        const dateA = new Date(
+          a.mailDate || 0
+        );
 
-    const date = new Date(value);
+        const dateB = new Date(
+          b.mailDate || 0
+        );
 
-    if (Number.isNaN(date.getTime())) {
-      return "—";
-    }
+        if (sortBy === "newest") {
+          return dateB - dateA;
+        }
 
-    return date.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
+        if (sortBy === "oldest") {
+          return dateA - dateB;
+        }
 
-  const getAge = (value) => {
-    if (!value) {
-      return 0;
-    }
+        if (
+          sortBy ===
+          "age-high"
+        ) {
+          const ageA =
+            calculateAge(
+              a.mailDate
+            ) || 0;
 
-    const received = new Date(value);
+          const ageB =
+            calculateAge(
+              b.mailDate
+            ) || 0;
 
-    if (Number.isNaN(received.getTime())) {
-      return 0;
-    }
+          return ageB - ageA;
+        }
 
-    return Math.max(
-      0,
-      Math.floor(
-        (Date.now() - received.getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
+        if (
+          sortBy ===
+          "age-low"
+        ) {
+          const ageA =
+            calculateAge(
+              a.mailDate
+            ) || 0;
+
+          const ageB =
+            calculateAge(
+              b.mailDate
+            ) || 0;
+
+          return ageA - ageB;
+        }
+
+        if (sortBy === "name") {
+          return (
+            (a.projectName || "")
+              .localeCompare(
+                b.projectName ||
+                  ""
+              )
+          );
+        }
+
+        return 0;
+      }
     );
+  }, [
+    projects,
+    search,
+    filterType,
+    filterStage,
+    filterStatus,
+    sortBy,
+  ]);
+
+  /*
+   * ==========================================
+   * NOTIFICATION HANDLER
+   * ==========================================
+   */
+  const handleNotificationProjectClick = (projectId) => {
+    const project = projects.find(
+      (p) =>
+        String(p.id) ===
+          String(projectId) ||
+        String(p._id) ===
+          String(projectId)
+    );
+
+    if (project) {
+      console.log(
+        "Project clicked from notification:",
+        project
+      );
+    }
   };
 
+  /*
+   * ==========================================
+   * RENDER
+   * ==========================================
+   */
   return (
-    <div className="metis-pm-page">
-      <main className="metis-pm-main">
-        {/* ==================================================
-            TOPBAR
-            ================================================== */}
+    <>
 
-        <header className="metis-pm-topbar">
-          <div className="metis-pm-topbar-left">
-            <PMHamburger />
+        {/* HEADER */}
+        <header className="tl-header">
 
-            <button
-              type="button"
-              className="metis-pm-back-button"
-              onClick={() => navigate("/pm")}
-              title="Back to My Projects"
-            >
-              <ArrowLeft size={17} />
-            </button>
+          <PMHamburger />
 
-            <div>
-              <h1>PROJECT MAIL</h1>
-              <span>
-                Project Manager Workspace
-              </span>
+          <div className="tl-header-title">
+
+            <div className="tl-header-number">
+              PM
             </div>
+
+            <h1>ALL PROJECTS</h1>
+
           </div>
 
-          <div className="metis-pm-topbar-actions">
-            <button
-              type="button"
-              className="metis-pm-icon-button"
-              onClick={loadProjects}
-              title="Refresh"
-            >
-              <RefreshCw
-                size={16}
-                className={
-                  loading
-                    ? "metis-pm-spin"
-                    : ""
-                }
-              />
-            </button>
+          <div className="tl-header-actions">
 
             <button
               type="button"
-              className="metis-pm-icon-button"
-              title="Notifications"
+              className="tl-icon-button"
+              onClick={handleRefresh}
+              title="Refresh"
             >
-              <Bell size={16} />
+              <RefreshCw size={17} />
             </button>
+
+            <NotificationBell
+              onProjectClick={
+                handleNotificationProjectClick
+              }
+            />
+
           </div>
         </header>
 
-        {/* ==================================================
-            CONTENT
-            ================================================== */}
+        {/* CONTENT */}
+        <div className="tl-content">
 
-        <section className="metis-pm-content">
-          <div className="metis-pm-page-heading">
-            <div>
-              <h2>Project Mail</h2>
+          {/* =================================
+                METRICS
+          ================================== */}
+          <section className="tl-metrics">
 
-              <p>
-                Review project mail information
-                entered by the Admin.
-              </p>
+            <div className="tl-metric-card">
+
+              <div>
+                <span className="tl-metric-label">
+                  TOTAL
+                </span>
+
+                <strong>
+                  {metrics.total}
+                </strong>
+
+                <small>
+                  All projects
+                </small>
+              </div>
+
+              <div className="tl-metric-icon neutral">
+                <Briefcase size={18} />
+              </div>
+
             </div>
 
-            <div className="metis-pm-page-heading-actions">
-              <div className="metis-pm-search">
-                <Search size={15} />
+            <div className="tl-metric-card">
+
+              <div>
+                <span className="tl-metric-label">
+                  IN PROGRESS
+                </span>
+
+                <strong className="blue">
+                  {metrics.inProgress}
+                </strong>
+
+                <small>
+                  Active on-site
+                </small>
+              </div>
+
+              <div className="tl-metric-icon blue-icon">
+                <Zap size={18} />
+              </div>
+
+            </div>
+
+            <div className="tl-metric-card">
+
+              <div>
+                <span className="tl-metric-label red">
+                  ON HOLD
+                </span>
+
+                <strong>
+                  {metrics.onHold}
+                </strong>
+
+                <small>
+                  Pending revision
+                </small>
+              </div>
+
+              <div className="tl-metric-icon red-icon">
+                <PauseCircle size={18} />
+              </div>
+
+            </div>
+
+            <div className="tl-metric-card">
+
+              <div>
+                <span className="tl-metric-label green">
+                  COMPLETED
+                </span>
+
+                <strong className="green">
+                  {metrics.completed}
+                </strong>
+
+                <small>
+                  Handover
+                </small>
+              </div>
+
+              <div className="tl-metric-icon green-icon">
+                <CheckCircle2 size={18} />
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* =================================
+                CONTROLS
+          ================================== */}
+          <section className="tl-controls">
+
+            <div className="tl-control-top">
+
+              <div>
+                <div className="tl-tabs">
+
+                  <button
+                    type="button"
+                    className={`tl-tab ${
+                      filterStatus ===
+                        "all"
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setFilterStatus(
+                        "all"
+                      )
+                    }
+                  >
+                    All Projects
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`tl-tab ${
+                      filterStatus ===
+                        "In Progress"
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setFilterStatus(
+                        "In Progress"
+                      )
+                    }
+                  >
+                    <i className="blue-dot" />
+                    In Progress
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`tl-tab ${
+                      filterStatus ===
+                        "On Hold"
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setFilterStatus(
+                        "On Hold"
+                      )
+                    }
+                  >
+                    <i className="red-dot" />
+                    On Hold
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`tl-tab ${
+                      filterStatus ===
+                        "Completed"
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setFilterStatus(
+                        "Completed"
+                      )
+                    }
+                  >
+                    <i className="green-dot" />
+                    Completed
+                  </button>
+
+                </div>
+              </div>
+
+              <div className="tl-view-switcher">
+
+                <span>
+                  Filters:
+                </span>
+
+                <div>
+                  <select
+                    value={filterType}
+                    onChange={(event) =>
+                      setFilterType(
+                        event.target.value
+                      )
+                    }
+                    className="tl-filter-select"
+                  >
+                    <option value="all">
+                      Type: All
+                    </option>
+
+                    <option value="RCC">
+                      RCC
+                    </option>
+
+                    <option value="Steel">
+                      Steel
+                    </option>
+
+                    <option value="Outsource">
+                      Outsource
+                    </option>
+
+                    <option value="PMC">
+                      PMC
+                    </option>
+                  </select>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* FILTER ROW */}
+            <div className="tl-filter-row">
+
+              <div className="tl-search">
+
+                <Search size={17} />
 
                 <input
-                  type="text"
                   value={search}
                   onChange={(event) =>
                     setSearch(
                       event.target.value
                     )
                   }
-                  placeholder="Search project mail..."
+                  placeholder="Search projects by name, code, subject..."
                 />
-              </div>
-            </div>
-          </div>
 
-          {/* ==================================================
-              STATS
-              ================================================== */}
-
-          <div className="metis-pm-stats">
-            <div className="metis-pm-stat-card">
-              <div className="metis-pm-stat-heading">
-                <span>Total Mail</span>
-
-                <div className="metis-pm-stat-icon blue">
-                  <Mail size={18} />
-                </div>
               </div>
 
-              <strong>
-                {projects.length}
-              </strong>
+              <select
+                value={filterStage}
+                onChange={(event) =>
+                  setFilterStage(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="all">
+                  Stage: All
+                </option>
 
-              <small>
-                Project records entered by Admin
-              </small>
+                {PROJECT_STAGES.map((stage) => (
+                  <option
+                    key={stage}
+                    value={stage}
+                  >
+                    {stage}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={sortBy}
+                onChange={(event) =>
+                  setSortBy(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="newest">
+                  Sort: Newest First
+                </option>
+
+                <option value="oldest">
+                  Sort: Oldest First
+                </option>
+
+                <option value="age-high">
+                  Sort: Age High
+                </option>
+
+                <option value="age-low">
+                  Sort: Age Low
+                </option>
+
+                <option value="name">
+                  Sort: Name
+                </option>
+              </select>
+
+              <button
+                type="button"
+                className="tl-filter-button"
+                onClick={clearFilters}
+                title="Clear filters"
+              >
+                <Filter size={16} />
+              </button>
+
             </div>
+          </section>
 
-            <div className="metis-pm-stat-card">
-              <div className="metis-pm-stat-heading">
-                <span>Showing</span>
-
-                <div className="metis-pm-stat-icon amber">
-                  <FolderKanban size={18} />
-                </div>
-              </div>
-
-              <strong>
-                {filteredProjects.length}
-              </strong>
-
-              <small>
-                Matching project records
-              </small>
-            </div>
-          </div>
-
-          {/* ==================================================
-              ERROR
-              ================================================== */}
-
-          {error && (
-            <div className="metis-pm-alert error">
-              {error}
-            </div>
-          )}
-
-          {/* ==================================================
-              MAIL LIST
-              ================================================== */}
-
-          <div className="metis-pm-panel">
-            <div className="metis-pm-panel-header">
-              <div>
-                <h3>
-                  Project Mail Records
-                </h3>
-
-                <p>
-                  Project information received
-                  from Admin entries.
-                </p>
-              </div>
-
-              <span className="metis-pm-count-badge">
-                {filteredProjects.length}
-              </span>
-            </div>
+          {/* =================================
+                TABLE
+          ================================== */}
+          <section className="tl-table-container">
 
             {loading ? (
-              <div className="metis-pm-empty">
-                <RefreshCw
-                  size={24}
-                  className="metis-pm-spin"
-                />
+              <div className="tl-empty">
+
+                <div className="tl-empty-icon">
+                  <Briefcase size={24} />
+                </div>
 
                 <h3>
-                  Loading project mail...
+                  Loading Projects
                 </h3>
 
                 <p>
-                  Fetching project information.
+                  Please wait while projects
+                  are being fetched...
                 </p>
+
               </div>
-            ) : filteredProjects.length ===
-              0 ? (
-              <div className="metis-pm-empty">
-                <Mail size={38} />
+            ) : error ? (
+              <div className="tl-empty">
+
+                <div className="tl-empty-icon">
+                  <Briefcase size={24} />
+                </div>
 
                 <h3>
-                  {search
-                    ? "No matching project mail"
-                    : "No project mail yet"}
+                  Unable to Load Projects
                 </h3>
 
                 <p>
-                  {search
-                    ? "Try a different search term."
-                    : "Mail records will appear here from projects created by the Admin."}
+                  {error?.message ||
+                    "Failed to fetch project data."}
                 </p>
+
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                >
+                  Retry
+                </button>
+
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="tl-empty">
+
+                <div className="tl-empty-icon">
+                  <Briefcase size={24} />
+                </div>
+
+                <h3>
+                  No Projects Found
+                </h3>
+
+                <p>
+                  {search ||
+                  filterType !== "all" ||
+                  filterStage !== "all" ||
+                  filterStatus !== "all"
+                    ? "No projects match the current filters."
+                    : "There are no projects available."}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                >
+                  Clear Filters
+                </button>
+
               </div>
             ) : (
-              <div className="metis-pm-mail-list">
-                {filteredProjects.map(
-                  (project) => (
-                    <article
-                      key={
-                        project.id ||
-                        project._id ||
-                        project.projectCode ||
-                        project.projectName
+              <div className="tl-table-scroll">
+
+                <table className="tl-table">
+
+                  <thead>
+                    <tr>
+                      <th>PROJECT</th>
+                      <th>TYPE</th>
+                      <th>STAGE</th>
+                      <th>STATUS</th>
+                      <th>PM LEAD</th>
+                      <th>TL</th>
+                      <th>MAIL DATE</th>
+                      <th>AGE</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+
+                    {filtered.map(
+                      (project) => {
+                        const age = calculateAge(
+                          project.mailDate
+                        );
+
+                        return (
+                          <tr
+                            key={
+                              project.id ||
+                              project._id ||
+                              `${project.projectCode || ""}-${project.mailDate || ""}`
+                            }
+                          >
+
+                            {/* PROJECT */}
+                            <td>
+                              <div className="tl-project-cell">
+
+                                <div className="tl-project-icon">
+                                  <Building2 size={16} />
+                                </div>
+
+                                <div>
+                                  <div className="tl-project-name">
+
+                                    <span>
+                                      {project.projectName ||
+                                        "—"}
+                                    </span>
+
+                                    <small>
+                                      {project.projectCode ||
+                                        ""}
+                                    </small>
+
+                                  </div>
+
+                                  {project.subject && (
+                                    <p>
+                                      •{" "}
+                                      {project.subject}
+                                    </p>
+                                  )}
+
+                                </div>
+
+                              </div>
+                            </td>
+
+                            {/* TYPE */}
+                            <td>
+                              <span
+                                className={`tl-type ${
+                                  project.projectType
+                                    ? project
+                                        .projectType
+                                        .toLowerCase()
+                                    : ""
+                                }`}
+                              >
+                                {project.projectType ||
+                                  "—"}
+                              </span>
+                            </td>
+
+                            {/* STAGE */}
+                            <td>
+                              <span
+                                className={`tl-stage ${
+                                  project.projectStage
+                                    ? project
+                                        .projectStage
+                                        .toLowerCase()
+                                        .replace(
+                                          /\s+/g,
+                                          "-"
+                                        )
+                                    : ""
+                                }`}
+                              >
+                                {project.projectStage ||
+                                  "—"}
+                              </span>
+                            </td>
+
+                            {/* STATUS */}
+                            <td>
+                              <span
+                                className={`tl-status ${
+                                  project.status
+                                    ? project
+                                        .status
+                                        .toLowerCase()
+                                        .replace(
+                                          /\s+/g,
+                                          "-"
+                                        )
+                                    : "empty"
+                                }`}
+                              >
+                                <i />
+
+                                {project.status ||
+                                  "—"}
+                              </span>
+                            </td>
+
+                            {/* PM */}
+                            <td>
+                              <div className="tl-pm-cell">
+
+                                <span className="tl-table-avatar">
+                                  {project.pmInitials ||
+                                    "PM"}
+                                </span>
+
+                                <strong>
+                                  {project.pmName ||
+                                    "—"}
+                                </strong>
+
+                              </div>
+                            </td>
+
+                            {/* TL */}
+                            <td>
+                              {project.assignedTL ? (
+                                <div className="tl-pm-cell">
+
+                                  <span className="tl-table-avatar">
+                                    TL
+                                  </span>
+
+                                  <strong>
+                                    {project.assignedTL}
+                                  </strong>
+
+                                </div>
+                              ) : (
+                                <span>—</span>
+                              )}
+                            </td>
+
+                            {/* MAIL DATE */}
+                            <td>
+                              {formatDate(
+                                project.mailDate
+                              )}
+                            </td>
+
+                            {/* AGE */}
+                            <td>
+                              <span
+                                className={
+                                  typeof age ===
+                                    "number" &&
+                                  age >= 5
+                                    ? "tl-age tl-age-danger"
+                                    : "tl-age"
+                                }
+                              >
+                                {age ?? "—"}
+
+                                {typeof age ===
+                                  "number"
+                                  ? "d"
+                                  : ""}
+                              </span>
+                            </td>
+
+                          </tr>
+                        );
                       }
-                      className="metis-pm-mail-card"
-                    >
-                      <div className="metis-pm-mail-card-icon">
-                        <Mail size={19} />
-                      </div>
+                    )}
 
-                      <div className="metis-pm-mail-card-main">
-                        <div className="metis-pm-mail-card-top">
-                          <div>
-                            <h4>
-                              {project.subject ||
-                                "Project Mail"}
-                            </h4>
+                  </tbody>
+                </table>
 
-                            <span>
-                              {project.projectName ||
-                                "Unnamed Project"}
-                            </span>
-                          </div>
-
-                          <span className="metis-pm-status">
-                            {project.emailStage ||
-                              project.status ||
-                              "Received"}
-                          </span>
-                        </div>
-
-                        <div className="metis-pm-mail-meta">
-                          <span>
-                            <Building2
-                              size={14}
-                            />
-
-                            {project.projectType ||
-                              "—"}
-                          </span>
-
-                          <span>
-                            <CalendarDays
-                              size={14}
-                            />
-
-                            {formatDate(
-                              project.mailDate
-                            )}
-                          </span>
-
-                          <span>
-                            <Clock3
-                              size={14}
-                            />
-
-                            Age{" "}
-                            {getAge(
-                              project.mailDate
-                            )}{" "}
-                            days
-                          </span>
-
-                          <span>
-                            <Tag size={14} />
-
-                            {project.projectStage ||
-                              "—"}
-                          </span>
-                        </div>
-
-                        {project.location && (
-                          <p className="metis-pm-mail-location">
-                            {project.location}
-                          </p>
-                        )}
-                      </div>
-                    </article>
-                  )
-                )}
               </div>
             )}
-          </div>
-        </section>
 
-        {/* ==================================================
-            FOOTER
-            ================================================== */}
+            {/* TABLE FOOTER */}
+            <div className="tl-table-footer">
 
-        <footer className="metis-pm-footer">
-          <span>
-            METIS Construction Project Management
-          </span>
+              <span>
+                Showing {filtered.length} of{" "}
+                {total ?? filtered.length}{" "}
+                projects
+              </span>
 
-          <span>
-            Project Mail Workspace
-          </span>
-        </footer>
-      </main>
-    </div>
+            </div>
+
+          </section>
+
+        </div>
+      
+    </>
   );
 };
 

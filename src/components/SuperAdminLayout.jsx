@@ -175,12 +175,30 @@ const SuperAdminLayout = () => {
                   : ""
               }`}
               onClick={() =>
-                navigate("/super-admin")
+                navigate("/super-admin/reports")
               }
             >
-              <BarChart3 size={18} />
+               <BarChart3 size={18} />
               {sidebarOpen && (
                 <span>Reports</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              title="Integration & Settings"
+              className={`admin-nav-item ${
+                isActive("/super-admin/integration-settings")
+                  ? "active"
+                  : ""
+              }`}
+              onClick={() =>
+                navigate("/super-admin/integration-settings")
+              }
+            >
+              <Settings size={18} />
+              {sidebarOpen && (
+                <span>Integration &amp; Settings</span>
               )}
             </button>
           </nav>

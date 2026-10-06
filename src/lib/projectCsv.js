@@ -1,6 +1,24 @@
+const HEADER_ALIASES = {
+  "start date": "Start Date",
+  startdate: "Start Date",
+  "project start date": "Start Date",
+  projectstartdate: "Start Date",
+  "end date": "End Date",
+  enddate: "End Date",
+  "project end date": "End Date",
+  projectenddate: "End Date",
+};
+
+export const normalizeHeader = (header) => {
+  const lower = String(header || "").toLowerCase().trim();
+  return HEADER_ALIASES[lower] || header;
+};
+
 export const PROJECT_CSV_HEADERS = [
   "Mail Subject",
   "Mail Date",
+  "Start Date",
+  "End Date",
   "Project Name",
   "Project Code",
   "Project Manager",
@@ -14,9 +32,15 @@ export const PROJECT_CSV_HEADERS = [
 ];
 
 export const downloadProjectSampleCSV = () => {
+  const day = new Date();
+  const future = new Date();
+  future.setDate(day.getDate() + 10);
+
   const sampleRow = [
     "Sample Project Email",
     new Date().toISOString().slice(0, 10),
+    future.toISOString().slice(0, 10),
+    "",
     "Test Project",
     "PRJ-001",
     "Unassigned",

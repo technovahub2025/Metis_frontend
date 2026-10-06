@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Search,
   RefreshCw,
-  Bell,
   UserRound,
   ShieldCheck,
 } from "lucide-react";
@@ -180,14 +179,6 @@ const PMTeamRosterPage = () => {
                     : ""
                 }
               />
-            </button>
-
-            <button
-              type="button"
-              className="metis-pm-icon-button"
-              title="Notifications"
-            >
-              <Bell size={16} />
             </button>
           </div>
         </header>

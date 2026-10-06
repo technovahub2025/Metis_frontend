@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   FolderKanban,
+  Shield,
   ShieldCheck,
   Users,
   UserCheck,
@@ -114,8 +115,15 @@ const SuperAdminPage = () => {
       (p) => isCompleted(p.projectStage)
     ).length;
 
+    const projectsDropped = projects.filter(
+      (p) =>
+        String(p.projectStage || "")
+          .toLowerCase() === "dropped"
+    ).length;
+
     return {
       totalUsers: allUsers.length,
+      totalSuperAdmins: byRole("super_admin"),
       totalAdmins: byRole("admin"),
       totalPMs: byRole("pm"),
       totalTLs: byRole("tl"),
@@ -126,6 +134,7 @@ const SuperAdminPage = () => {
       projectsInProgress,
       projectsOnHold,
       projectsCompleted,
+      projectsDropped,
     };
   }, [users, projects]);
 
@@ -159,6 +168,14 @@ const SuperAdminPage = () => {
           description="Registered system users"
           icon={<Users size={17} />}
           iconClass="blue"
+        />
+
+        <MetricCard
+          title="Super Admins"
+          value={metrics.totalSuperAdmins}
+          description="Super Admin role users"
+          icon={<Shield size={17} />}
+          iconClass="red"
         />
 
         <MetricCard
@@ -244,6 +261,14 @@ const SuperAdminPage = () => {
           description="Finished projects"
           icon={<CheckCircle2 size={17} />}
           iconClass="green"
+        />
+
+        <MetricCard
+          title="Dropped"
+          value={metrics.projectsDropped}
+          description="Projects no longer active"
+          icon={<Package size={17} />}
+          iconClass="red"
         />
 
         <MetricCard

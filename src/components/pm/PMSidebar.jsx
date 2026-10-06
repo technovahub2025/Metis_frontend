@@ -2,7 +2,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   FolderKanban,
   Mail,
-  Users,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -23,21 +22,9 @@ const navigation = [
     path: "/pm/project-mail",
     step: null,
   },
-  {
-    name: "TL Assigned Hub",
-    icon: Users,
-    path: "/pm/tl-assigned",
-    step: "Step 3",
-  },
 ];
 
 const adminNav = [
-  {
-    name: "Team Roster",
-    icon: Users,
-    path: "/pm/team-roster",
-    step: null,
-  },
   {
     name: "Settings",
     icon: Settings,

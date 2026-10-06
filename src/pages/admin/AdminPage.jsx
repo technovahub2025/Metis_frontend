@@ -18,10 +18,79 @@ import {
   Trash2,
 } from "lucide-react";
 import AdminHeader from "../../components/AdminHeader";
-import { downloadProjectSampleCSV, parseProjectCSV, PROJECT_CSV_HEADERS } from "../../lib/projectCsv";
+import { downloadProjectSampleCSV, parseProjectCSV, PROJECT_CSV_HEADERS, normalizeHeader } from "../../lib/projectCsv";
 import * as XLSX from "xlsx";
 import { apiRequest } from "../../lib/api";
 import { calculateAge, EMAIL_STAGES, PROJECT_STAGES } from "../../lib/helpers";
+
+const formatPersonName = (name) => {
+  if (!name || !String(name).trim()) {
+    return "Unassigned";
+  }
+
+  const parts = String(name).trim().split(/\s+/);
+
+  if (parts.length === 2 && parts[0].length === 1) {
+    return parts[1];
+  }
+
+  return name;
+};
+
+const normalizeMailDate = (value) => {
+  if (!value) return "";
+
+  const strValue = String(value).trim();
+
+  if (/^\d+(\.\d+)?$/.test(strValue)) {
+    const excelSerial = Number(strValue);
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const date = new Date(
+      excelEpoch.getTime() +
+      excelSerial * 24 * 60 * 60 * 1000
+    );
+    return date.toISOString().slice(0, 10);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(strValue)) {
+    const parsed = new Date(strValue);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  const parts = strValue.includes("/")
+    ? strValue.split("/")
+    : strValue.split("-");
+  if (parts.length === 3) {
+    const [day, month, year] = parts;
+    return (
+      year +
+      "-" +
+      month.padStart(2, "0") +
+      "-" +
+      day.padStart(2, "0")
+    );
+  }
+
+  return strValue;
+};
+
+const formatDrawerDate = (value) => {
+  const normalized = normalizeMailDate(value);
+
+  if (!normalized) {
+    return "-";
+  }
+
+  const parts = normalized.split("-");
+
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  return normalized;
+};
 
 const AdminPage = () => {
   const [search, setSearch] = useState("");
@@ -75,6 +144,8 @@ const AdminPage = () => {
   const [newMail, setNewMail] = useState({
     subject: "",
     mailDate: "",
+    startDate: "",
+    endDate: "",
     projectName: "",
     projectCode: "",
     pm: "",
@@ -469,7 +540,8 @@ const loadPMs = async () => {
     filterStage,
     filterEmailStage,
     filterStatus,
-    sortOption,
+    sortOption,
+
     filterCalendarDate,
   ]);
 
@@ -563,7 +635,7 @@ const loadPMs = async () => {
         return;
       }
 
-      const headers = rows[0].map((header) => header.trim());
+      const headers = rows[0].map((header) => normalizeHeader(header.trim()));
 
       const headersMatch =
         headers.length === PROJECT_CSV_HEADERS.length &&
@@ -623,16 +695,38 @@ const loadPMs = async () => {
 
         const payload = {
           subject: getValue(row, "Mail Subject"),
-          mailDate: (() => {
-            const value = getValue(row, "Mail Date");
-            if (!value) return undefined;
-            const parts = value.includes("/") ? value.split("/") : value.split("-");
-            if (parts.length === 3) {
-              const [day, month, year] = parts;
-              return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0");
-            }
-            return value;
-          })(),
+           mailDate: (() => {
+             const value = getValue(row, "Mail Date");
+
+             if (!value) return undefined;
+
+             // Excel serial date
+             if (/^\d+(\.\d+)?$/.test(value)) {
+               const excelSerial = Number(value);
+               const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+               const date = new Date(excelEpoch.getTime() + excelSerial * 24 * 60 * 60 * 1000);
+               return date.toISOString().slice(0, 10);
+             }
+
+             // Normal DD/MM/YYYY or DD-MM-YYYY date
+             const parts = value.includes("/") ? value.split("/") : value.split("-");
+             if (parts.length === 3) {
+               const [day, month, year] = parts;
+               return year + "-" + month.padStart(2, "0") + "-" + day.padStart(2, "0");
+             }
+
+             return value;
+           })(),
+           startDate: (() => {
+             const value = getValue(row, "Start Date");
+             if (!value) return undefined;
+             return normalizeMailDate(value) || undefined;
+           })(),
+           endDate: (() => {
+             const value = getValue(row, "End Date");
+             if (!value) return undefined;
+             return normalizeMailDate(value) || undefined;
+           })(),
           projectName,
           projectCode: getValue(row, "Project Code"),
           projectType: getValue(row, "Type of Project") || undefined,
@@ -718,6 +812,8 @@ const loadPMs = async () => {
     setNewMail({
       subject: "",
       mailDate: "",
+      startDate: "",
+      endDate: "",
       projectName: "",
       projectCode: "",
       pm: "",
@@ -753,12 +849,18 @@ const loadPMs = async () => {
     try {
       setSavingProject(true);
 
-      const payload = {
-        subject:
-          newMail.subject.trim(),
+       const payload = {
+           subject:
+             newMail.subject.trim(),
 
-        mailDate:
-          newMail.mailDate || undefined,
+           mailDate:
+             newMail.mailDate || undefined,
+
+           startDate:
+             newMail.startDate || undefined,
+
+           endDate:
+             newMail.endDate || undefined,
 
         projectName:
           newMail.projectName.trim(),
@@ -849,27 +951,12 @@ const loadPMs = async () => {
   const handleEditProject = (project) => {
     if (!project) return;
 
-    const rawDate = String(project.mailDate || '').trim();
-    let normalizedDate = rawDate;
-
-    if (rawDate.includes('/')) {
-      const parts = rawDate.split('/');
-      if (parts.length === 3) {
-        const [day, month, year] = parts;
-        normalizedDate = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
-      }
-    } else if (rawDate.includes('-')) {
-      const parts = rawDate.split('-');
-      if (parts.length === 3 && parts[0].length === 2) {
-        const [day, month, year] = parts;
-        normalizedDate = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
-      }
-    }
-
     setEditingProject(project);
     setNewMail({
       subject: project.subject || '',
-      mailDate: normalizedDate,
+      mailDate: normalizeMailDate(project.mailDate),
+      startDate: normalizeMailDate(project.startDate),
+      endDate: normalizeMailDate(project.endDate),
       projectName: project.projectName || '',
       projectCode: project.projectCode || '',
       pm: project.pm || project.pmId || '',
@@ -900,6 +987,8 @@ const loadPMs = async () => {
       const payload = {
         subject: newMail.subject.trim(),
         mailDate: newMail.mailDate || undefined,
+        startDate: newMail.startDate || undefined,
+        endDate: newMail.endDate || undefined,
         projectName: newMail.projectName.trim(),
         projectCode: newMail.projectCode.trim(),
         projectType: newMail.projectType || undefined,
@@ -1741,9 +1830,7 @@ const loadPMs = async () => {
                                   project.id
                                 }
 
-                                <span>
-                                  â€¢
-                                </span>
+                                
 
                                 {project.projectCode ||
                                   "No project code"}
@@ -1771,30 +1858,7 @@ const loadPMs = async () => {
                         </td>
 
                         <td>
-                          <span className="pm-pill">
-                            <span>
-                              {project.pmName
-                                ? project.pmInitials ||
-                                  project.pmName
-                                    .split(
-                                      " "
-                                    )
-                                    .map(
-                                      (
-                                        name
-                                      ) =>
-                                        name[0]
-                                    )
-                                    .join("")
-                                    .slice(
-                                      0,
-                                      2
-                                    )
-                                : "â€”"}
-                            </span>
-
-                            {project.pmName ||
-                              "Unassigned"}
+                          <span className={`pm-pill ${(project.pmName || project.pmId || project.pmEmail || project.pm) ? "pm-assigned" : "pm-unassigned"}`}>{formatPersonName(project.pmName)}
                           </span>
                         </td>
 
@@ -1959,23 +2023,33 @@ const loadPMs = async () => {
                   }
                 />
 
-                <DrawerField
-                  label="Mail Date"
-                  value={
-                    selectedMail.mailDate
-                      ? new Date(
-                          selectedMail.mailDate
-                        ).toLocaleDateString(
-                          "en-IN"
-                        )
-                      : "-"
-                  }
-                />
+                 <DrawerField
+                   label="Mail Date"
+                   value={
+                     selectedMail.mailDate
+                       ? new Date(
+                           selectedMail.mailDate
+                         ).toLocaleDateString(
+                           "en-IN"
+                         )
+                       : "-"
+                   }
+                 />
 
-                <DrawerField
-                  label="Age"
-                  value={`${selectedMail.ageDays ?? 0} days old`}
-                />
+                  <DrawerField
+                    label="Start Date"
+                    value={formatDrawerDate(selectedMail.startDate)}
+                  />
+
+                  <DrawerField
+                    label="End Date"
+                    value={formatDrawerDate(selectedMail.endDate)}
+                  />
+
+                 <DrawerField
+                   label="Age"
+                   value={`${selectedMail.ageDays ?? 0} days old`}
+                 />
 
                 <DrawerField
                   label="Project Type"
@@ -2166,26 +2240,67 @@ const loadPMs = async () => {
                     Mail Date
                   </label>
 
-                  <input
-                    type="date"
-                    required
-                    value={
-                      newMail.mailDate
-                    }
-                    onChange={(event) =>
-                      setNewMail({
-                        ...newMail,
-                        mailDate:
-                          event.target.value,
-                      })
-                    }
-                  />
-                </div>
+                   <input
+                     type="date"
+                     required
+                     value={
+                       newMail.mailDate
+                     }
+                     onChange={(event) =>
+                       setNewMail({
+                         ...newMail,
+                         mailDate:
+                           event.target.value,
+                       })
+                     }
+                   />
+                 </div>
 
-                <div className="admin-form-group">
-                  <label>
-                    Project Name
-                  </label>
+                 <div className="admin-form-group">
+                   <label>
+                     Start Date
+                   </label>
+
+                   <input
+                     type="date"
+                     required
+                     value={
+                       newMail.startDate
+                     }
+                     onChange={(event) =>
+                       setNewMail({
+                         ...newMail,
+                         startDate:
+                           event.target.value,
+                       })
+                     }
+                   />
+                 </div>
+
+                 <div className="admin-form-group">
+                   <label>
+                     End Date
+                   </label>
+
+                   <input
+                     type="date"
+                     value={
+                       newMail.endDate
+                     }
+                     onChange={(event) =>
+                       setNewMail({
+                         ...newMail,
+                         endDate:
+                           event.target.value,
+                       })
+                     }
+                   />
+                 </div>
+
+                 <div className="admin-form-group">
+                   <label>
+                     Project Name
+                   </label>
 
                   <input
                     required
@@ -2529,7 +2644,7 @@ const loadPMs = async () => {
         >
           <div>
             {toast.success
-              ? "âœ“"
+              ? ""
               : "!"}
           </div>
 
@@ -2649,6 +2764,10 @@ const DrawerField = ({
 };
 
 export default AdminPage;
+
+
+
+
 
 
 

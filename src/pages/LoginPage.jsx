@@ -257,7 +257,7 @@ const destination = roleRoutes[role];
                       e.target.value
                     )
                   }
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="Enter your password"
                   autoComplete="current-password"
                 />
 
@@ -328,7 +328,7 @@ const destination = roleRoutes[role];
               ) : success ? (
                 <>
                   <span>
-                    Verified âœ“
+                    Verified
                   </span>
 
                   <Check />

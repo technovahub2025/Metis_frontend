@@ -14,7 +14,7 @@ import TLLayout from "./components/TLLayout";
 import AdminPage from "./pages/admin/AdminPage";
 import AllProjectsPage from "./pages/admin/AllProjectsPage";
 import TeamManagementPage from "./pages/admin/TeamManagementPage";
-import IntegrationSettingsPage from "./pages/admin/IntegrationSettingsPage";
+// IntegrationSettingsPage moved to Super Admin ownership
 
 import PMPage from "./pages/pm/PMPage";
 import PMProjectMailPage from "./pages/pm/PMProjectMailPage";
@@ -31,6 +31,8 @@ import SuperAdminLayout from "./components/SuperAdminLayout";
 import SuperAdminPage from "./pages/superadmin/SuperAdminPage";
 import SuperAdminUsersPage from "./pages/superadmin/SuperAdminUsersPage";
 import SuperAdminProjectsPage from "./pages/superadmin/SuperAdminProjectsPage";
+import SuperAdminReportsPage from "./pages/superadmin/SuperAdminReportsPage";
+import IntegrationSettingsPage from "./pages/admin/IntegrationSettingsPage";
 
 function App() {
   return (
@@ -59,11 +61,6 @@ function App() {
           <Route
             path="/admin/team-management"
             element={<TeamManagementPage />}
-          />
-
-          <Route
-            path="/admin/settings"
-            element={<IntegrationSettingsPage />}
           />
 
         </Route>
@@ -139,6 +136,36 @@ function App() {
           <Route
             path="/super-admin/projects"
             element={<SuperAdminProjectsPage />}
+          />
+
+          <Route
+            path="/super-admin/reports"
+            element={<SuperAdminReportsPage />}
+          />
+
+          <Route
+            path="/super-admin/integration-settings"
+            element={<IntegrationSettingsPage />}
+          />
+
+          <Route
+            path="/super-admin/integrations"
+            element={
+              <Navigate
+                to="/super-admin/integration-settings"
+                replace
+              />
+            }
+          />
+
+          <Route
+            path="/super-admin/settings"
+            element={
+              <Navigate
+                to="/super-admin/integration-settings"
+                replace
+              />
+            }
           />
 
         </Route>

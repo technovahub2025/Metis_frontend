@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useApiList } from "../../lib/useApiList";
 import { TLHamburger } from "../../components/tl";
 import { PROJECT_STAGES } from "../../lib/helpers";
+import NotificationBell from "../../components/NotificationBell";
 import {
-  Bell,
   Briefcase,
   Building2,
   Calendar,
@@ -36,6 +36,54 @@ const TLPage = () => {
   } = useApiList("/api/projects", {
     limit: 200,
   });
+
+  const normalizedProjects = projects.map((project) => ({
+    ...project,
+    name:
+      project.projectName ||
+      project.name ||
+      project.projectCode ||
+      project.id ||
+      project._id,
+    id:
+      project.projectCode ||
+      project.id ||
+      project._id,
+    type:
+      project.projectType ||
+      project.type ||
+      "",
+    stage:
+      project.projectStage ||
+      project.stage ||
+      "",
+    status:
+      project.status ||
+      "",
+    pmName:
+      project.pmName ||
+      project.assignedPM ||
+      "",
+    pmInitials:
+      project.pmInitials ||
+      "",
+    assignedDate:
+      project.assignedDate ||
+      "",
+    ageDays:
+      project.ageDays || 0,
+    location:
+      project.location ||
+      "",
+    scope:
+      project.projectScope ||
+      project.scope ||
+      "",
+    updateNote:
+      project.subject ||
+      project.updateNote ||
+      "",
+  }));
 
   const [activeFilter, setActiveFilter] = useState("ALL");
   const [viewMode, setViewMode] = useState("table");
@@ -90,7 +138,7 @@ const TLPage = () => {
   }, [projects]);
 
   const filteredProjects = useMemo(() => {
-    let result = [...projects];
+    let result = [...normalizedProjects];
 
     if (activeFilter === "NEW") {
       result = result.filter(
@@ -168,7 +216,7 @@ const TLPage = () => {
 
     return result;
   }, [
-    projects,
+    normalizedProjects,
     activeFilter,
     typeFilter,
     stageFilter,
@@ -234,6 +282,22 @@ const TLPage = () => {
     setNotes("");
   };
 
+  const handleNotificationProjectClick = (
+    projectId
+  ) => {
+    const project = projects.find(
+      (p) =>
+        String(p.id) ===
+        String(projectId) ||
+        String(p._id) ===
+          String(projectId)
+    );
+
+    if (project) {
+      openProject(project);
+    }
+  };
+
   const appendNotes = () => {
     if (!notes.trim()) return;
 
@@ -276,14 +340,21 @@ const TLPage = () => {
       case "Planning":
       case "Acknowledged":
         return "tl-stage planning";
-
       case "Design":
       case "Model/Quote sent":
         return "tl-stage design";
-
       case "Construction":
       case "Implementation":
         return "tl-stage construction";
+
+      case "Dropped":
+        return "tl-stage dropped";
+      case "Hold":
+        return "tl-stage hold";
+      case "In Discussion - Inhouse":
+        return "tl-stage in-discussion-inhouse";
+      case "In Discussion - Team":
+        return "tl-stage in-discussion-team";
 
       case "Closure":
       case "Completed":
@@ -353,14 +424,16 @@ const TLPage = () => {
               </b>
             </div>
 
-            <button className="tl-icon-button">
-              <Bell size={17} />
-              <span className="tl-notification-dot" />
-            </button>
+             <NotificationBell
+               onProjectClick={
+                 handleNotificationProjectClick
+               }
+               collapsed
+             />
 
-            <button
-              className="tl-icon-button"
-              onClick={() =>
+             <button
+               className="tl-icon-button"
+               onClick={() =>
                 showToast(
                   "Workspace Refreshed",
                   "Project workspace refreshed."
@@ -679,15 +752,7 @@ const TLPage = () => {
                 </option>
               </select>
 
-              <select
-                value={stageFilter}
-                onChange={(e) =>
-                  setStageFilter(e.target.value)
-                }
-              >
-                <option value="ALL">
-                </option>
-              </select>
+            
 
               <select
                 value={stageFilter}
@@ -825,7 +890,7 @@ const TLPage = () => {
                               </div>
 
                               <p>
-                                • {project.updateNote}
+                                 {project.updateNote}
                               </p>
 
                             </div>
@@ -878,7 +943,7 @@ const TLPage = () => {
 
                             <strong>
                               {project.pmName ||
-                                "—"}
+                                "â€”"}
                             </strong>
 
                           </div>
@@ -890,7 +955,7 @@ const TLPage = () => {
                           <div className="tl-date-cell">
                             <Calendar size={14} />
                             {project.assignedDate ||
-                              "—"}
+                              "â€”"}
                           </div>
 
                         </td>
@@ -1079,7 +1144,7 @@ const TLPage = () => {
                           </span>
 
                           <strong>
-                            {project.pmName || "—"}
+                            {project.pmName || "â€”"}
                           </strong>
 
                         </div>
@@ -1093,10 +1158,9 @@ const TLPage = () => {
                       <span>
                         <Calendar size={14} />
 
-                        {project.assignedDate ||
-                          "—"}
+                        {project.assignedDate }
 
-                        <b>•</b>
+                        
 
                         <span
                           className={getAgeClass(
@@ -1222,7 +1286,7 @@ const TLPage = () => {
                     <small>PROJECT TYPE</small>
                     <strong>
                       {selectedProject.type ||
-                        "—"}
+                        "â€”"}
                     </strong>
                   </div>
 
@@ -1230,7 +1294,7 @@ const TLPage = () => {
                     <small>PROJECT STAGE</small>
                     <strong>
                       {selectedProject.stage ||
-                        "—"}
+                        "â€”"}
                     </strong>
                   </div>
 
@@ -1238,7 +1302,7 @@ const TLPage = () => {
                     <small>LOCATION</small>
                     <strong>
                       {selectedProject.location ||
-                        "—"}
+                        "â€”"}
                     </strong>
                   </div>
 
@@ -1277,7 +1341,7 @@ const TLPage = () => {
 
                     <strong>
                       {selectedProject.pmName ||
-                        "—"}
+                        "â€”"}
                     </strong>
 
                   </div>
@@ -1293,7 +1357,7 @@ const TLPage = () => {
 
                     <strong>
                       {selectedProject.assignedDate ||
-                        "—"}
+                        "â€”"}
                     </strong>
                   </div>
 
@@ -1332,12 +1396,12 @@ const TLPage = () => {
 
                     <strong>
                       {selectedProject.updateNote ||
-                        "—"}
+                        "â€”"}
                     </strong>
 
                     <span>
                       {selectedProject.assignedDate ||
-                        "—"}
+                        "â€”"}
                     </span>
 
                   </div>
@@ -1524,3 +1588,7 @@ const TLPage = () => {
 };
 
 export default TLPage;
+
+
+
+
