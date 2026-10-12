@@ -1,7 +1,23 @@
 {
   "rewrites": [
     {
-      "source": "/test_metis/:path*",
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/pm",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/tl",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/super-admin",
       "destination": "/index.html"
     }
   ]
