@@ -7,5 +7,5 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-   base: "/test_metis",
+   base: "/test_metis/",
 });
