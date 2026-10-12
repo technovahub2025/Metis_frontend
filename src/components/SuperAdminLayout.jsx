@@ -21,6 +21,7 @@ import {
   clearAuth,
   getCurrentUser,
 } from "../lib/api";
+import Footer from "./Footer";
 
 const ROLE_LABEL = {
   super_admin: "Super Admin",
@@ -235,6 +236,7 @@ const SuperAdminLayout = () => {
 
         <div className="metis-admin-main">
           <Outlet />
+          <Footer />
         </div>
       </div>
     </SidebarContext.Provider>

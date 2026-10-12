@@ -5,6 +5,7 @@ import {
 import { Outlet } from "react-router-dom";
 import { SidebarContext } from "../lib/SidebarContext";
 import TLSidebar from "./tl/TLSidebar";
+import Footer from "./Footer";
 
 const TLLayout = () => {
   const [sidebarOpen, setSidebarOpen] =
@@ -32,6 +33,7 @@ const TLLayout = () => {
 
         <div className="tl-main">
           <Outlet />
+          <Footer />
         </div>
       </div>
     </SidebarContext.Provider>

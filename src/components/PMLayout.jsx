@@ -5,6 +5,7 @@ import {
 import { Outlet } from "react-router-dom";
 import { SidebarContext } from "../lib/SidebarContext";
 import PMSidebar from "./pm/PMSidebar";
+import Footer from "./Footer";
 
 const PMLayout = () => {
   const [sidebarOpen, setSidebarOpen] =
@@ -32,6 +33,7 @@ const PMLayout = () => {
 
         <div className="metis-pm-main">
           <Outlet />
+          <Footer />
         </div>
       </div>
     </SidebarContext.Provider>

@@ -11,10 +11,10 @@ import {
 import {
   ClipboardList,
   HardHat,
-  Inbox,
   LogOut,
   Mail,
   Users,
+  Wallet,
 } from "lucide-react";
 import { SidebarContext } from "../lib/SidebarContext";
 import {
@@ -22,6 +22,7 @@ import {
   clearAuth,
   getCurrentUser,
 } from "../lib/api";
+import Footer from "./Footer";
 
 const ROLE_LABEL = {
   admin: "Lead System Admin",
@@ -199,11 +200,29 @@ const AdminLayout = () => {
                   onClick={() => navigate("/admin/team-management")}
                 >
                   <Users size={18} />
-                 {sidebarOpen && (
-                   <span>Team Management</span>
-                 )}
-               </button>
-             </nav>
+                  {sidebarOpen && (
+                    <span>Team Management</span>
+                  )}
+                </button>
+
+                {/* FINANCE MANAGEMENT */}
+                <button
+                  type="button"
+                  title="Finance Management"
+                  className={`admin-nav-item ${
+                    isActive("/admin/finance")
+                      ? "active"
+                      : ""
+                  }`}
+                  onClick={() => navigate("/admin/finance")}
+                >
+                  <Wallet size={18} />
+                  {sidebarOpen && (
+                    <span>Finance Management</span>
+                  )}
+                </button>
+
+              </nav>
 
           {/* USER AREA */}
           <div className="admin-sidebar-user">
@@ -239,6 +258,7 @@ const AdminLayout = () => {
         {/* MAIN CONTENT */}
         <div className="metis-admin-main">
           <Outlet />
+          <Footer />
         </div>
       </div>
     </SidebarContext.Provider>
