@@ -14,7 +14,6 @@ import TLLayout from "./components/TLLayout";
 import AdminPage from "./pages/admin/AdminPage";
 import AllProjectsPage from "./pages/admin/AllProjectsPage";
 import TeamManagementPage from "./pages/admin/TeamManagementPage";
-import FinancePage from "./pages/admin/FinancePage";
 // IntegrationSettingsPage moved to Super Admin ownership
 
 import PMPage from "./pages/pm/PMPage";
@@ -37,7 +36,7 @@ import IntegrationSettingsPage from "./pages/admin/IntegrationSettingsPage";
 
 function App() {
   return (
-    <BrowserRouter basename="/test_metis">
+    <BrowserRouter  basename="/test_metis">
       <Routes>
 
         {/* ================= LOGIN ================= */}
@@ -62,11 +61,6 @@ function App() {
           <Route
             path="/admin/team-management"
             element={<TeamManagementPage />}
-          />
-
-          <Route
-            path="/admin/finance"
-            element={<FinancePage />}
           />
 
         </Route>
