@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
+      "source": "/test_metis",
+      "destination": "/index.html"
+    },
+    {
       "source": "/test_metis/(.*)",
-      "destination": "/test_metis/index.html"
+      "destination": "/index.html"
     }
   ]
 }
